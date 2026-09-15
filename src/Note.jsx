@@ -1,6 +1,7 @@
 import React, { memo, useEffect, useRef } from 'react'
 import { PushPin } from './art.jsx'
 import { NOTE_COLORS } from './store.js'
+import { updateRopesForNote } from './ropes.js'
 
 function noteTitle(n) {
   const t = (n.text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
@@ -122,6 +123,7 @@ export default memo(function NoteView({
         w.style.top = d.y + 'px'
       }
       if (onDragMove) onDragMove(item.id, d.x, d.y)
+      updateRopesForNote(item.id, d.x, d.y, item.w)
     }
     const onUp = (ev) => {
       ev.currentTarget.removeEventListener('pointermove', onMove)
@@ -179,6 +181,7 @@ export default memo(function NoteView({
         paper.style.width = nw + 'px'
         paper.style.height = nh + 'px'
       }
+      updateRopesForNote(item.id, nx, ny, nw)
     }
     const onUp = (ev) => {
       const ns = getZoom()
@@ -204,23 +207,46 @@ export default memo(function NoteView({
   }
 
   function beginLink() {
-    const url = window.prompt('Paste the link address (https://…)')
+    const raw = window.prompt('Paste the link address (https://…)')
+    if (!raw) return
+    let url = raw.trim()
     if (!url) return
+    // Add a scheme when the user omits one, otherwise the browser treats the
+    // value as a relative URL and the link "goes nowhere".
+    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) {
+      url = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(url) ? `mailto:${url}` : `https://${url}`
+    }
+    let href
+    try {
+      const parsed = new URL(url)
+      if (!['http:', 'https:', 'mailto:', 'tel:'].includes(parsed.protocol)) throw new Error('unsupported')
+      href = parsed.href
+    } catch (e) {
+      window.alert('That doesn’t look like a valid link. Try something like https://example.com')
+      return
+    }
     restoreSelection()
-    const ok = document.execCommand('createLink', false, url.trim())
+    const ok = document.execCommand('createLink', false, href)
     if (ok) {
       const ed = edRef.current
-      if (ed) ed.querySelectorAll('a').forEach((a) => { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noreferrer') })
+      if (ed) {
+        ed.querySelectorAll('a').forEach((a) => {
+          a.setAttribute('target', '_blank')
+          a.setAttribute('rel', 'noreferrer')
+          a.setAttribute('contenteditable', 'false')
+        })
+      }
       commit()
     }
   }
 
   function openLink(e) {
-    const a = e.target.closest('a')
-    if (a && a.href) {
-      e.preventDefault()
-      window.open(a.href, '_blank', 'noopener')
-    }
+    const a = e.target && e.target.closest ? e.target.closest('a') : null
+    if (!a) return
+    const href = a.getAttribute('href') || ''
+    if (!/^(https?:|mailto:|tel:)/i.test(href)) return
+    e.preventDefault()
+    window.open(href, '_blank', 'noopener')
   }
 
   function attachImage(url) {

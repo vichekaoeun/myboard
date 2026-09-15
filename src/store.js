@@ -41,6 +41,15 @@ const redo = []
 let storageKey = DB_KEY
 let currentUserId = null
 
+// Sync bookkeeping: every local edit bumps `localVersion`; a successful push
+// records `pushedVersion`. While the two differ we have unsaved local changes,
+// so an incoming realtime ping must NOT overwrite them with an older board
+// (our own pushes also trigger pings, which could otherwise clobber newer edits).
+let localVersion = 0
+let pushedVersion = 0
+function markLocalChange() { localVersion++ }
+function isDirty() { return localVersion > pushedVersion }
+
 export const NOTE_COLORS = {
   white: '#fdfaf1',
   yellow: '#fff8c4',
@@ -228,13 +237,17 @@ export async function loadBoard(userId) {
   snapshot = merged
   history.length = 0
   redo.length = 0
+  localVersion = 0
+  pushedVersion = 0
   emit()
   setCloudUser(currentUserId)
   let remoteFresh = true
   if (currentUserId) {
     const hadRemote = await pullCloud()
     remoteFresh = !hadRemote
-    if (!hadRemote) await pushNow()
+    // Only upload when there is local content to send; pushing a brand-new
+    // empty board would create an empty row and a spurious realtime ping.
+    if (!hadRemote && !fresh) await pushNow()
   }
   return { fresh: fresh && remoteFresh }
 }
@@ -248,6 +261,8 @@ export function resetBoard() {
   snapshot = state
   history.length = 0
   redo.length = 0
+  localVersion = 0
+  pushedVersion = 0
   emit()
 }
 
@@ -342,6 +357,7 @@ export function redoFn() {
 function mutate(fn) {
   capture()
   state = fn(state)
+  markLocalChange()
   emit()
   scheduleSave()
 }
@@ -422,6 +438,7 @@ export function updateNoteLive(id, patch) {
     ...state,
     notes: state.notes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
   }
+  markLocalChange()
   emit()
   scheduleSave()
 }
@@ -740,12 +757,17 @@ function cloudPayload() {
 
 export async function pushNow() {
   if (!cloudEnabled || !boardRowId || cloudPushBusy) return
+  const version = localVersion
   cloudPushBusy = true
   clearTimeout(cloudTimer)
   cloudTimer = null
   try {
     const res = await apiPutBoard(cloudPayload())
-    if (res && res.error) console.warn('board sync: push failed', res.error.message)
+    if (res && res.error) {
+      console.warn('board sync: push failed', res.error.message)
+    } else if (version > pushedVersion) {
+      pushedVersion = version
+    }
   } finally {
     cloudPushBusy = false
   }
@@ -773,7 +795,16 @@ function applyRemote(rawPayload) {
   }
   if (!remote || !Array.isArray(remote.notes)) return
   const localJson = cloudPayload()
-  if (localJson === JSON.stringify({ notes: remote.notes, pins: remote.pins, envelopes: remote.envelopes, links: remote.links || [], view: remote.view })) return
+  const remoteJson = JSON.stringify({
+    notes: remote.notes,
+    pins: remote.pins || [],
+    clips: remote.clips || [],
+    music: remote.music || [],
+    envelopes: remote.envelopes || [],
+    links: remote.links || [],
+    view: remote.view,
+  })
+  if (localJson === remoteJson) return
   mutate((s) => ({
     ...s,
     notes: remote.notes || [],
@@ -804,12 +835,19 @@ export async function startCloud() {
 // One-shot pull of this account's board. Returns true when a remote board existed.
 export async function pullCloud() {
   if (!cloudEnabled || !boardRowId) return false
+  // Don't overwrite local edits that haven't been pushed yet. Our own pushes
+  // also trigger realtime pings, so applying a stale remote here would clobber
+  // newer local state (e.g. a freshly seeded board).
+  if (isDirty()) return false
   const res = await apiGetBoard()
   if (res && res.error) {
     console.warn('board sync: pull failed', res.error.message)
     return false
   }
   if (res && res.payload) {
+    // Local edits may have happened while the request was in flight — never
+    // overwrite unsynced local state with an older remote board.
+    if (isDirty()) return false
     applyRemote(res.payload)
     return true
   }

@@ -4,6 +4,7 @@ import PinView from './PinView.jsx'
 import ClipView from './ClipView.jsx'
 import MusicView from './MusicView.jsx'
 import EnvelopeView, { fanPoses } from './Envelope.jsx'
+import { ropePath } from './ropes.js'
 
 const WORLD_SIZE = 240000
 
@@ -15,6 +16,10 @@ export default function Board({
 }) {
   const pan = useRef(null)
   const noteById = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
+  // Strings present when the board opened shouldn't "draw in"; only ones added
+  // during this session animate. This ref is seeded once on first render.
+  const initialLinksRef = useRef(null)
+  if (initialLinksRef.current === null) initialLinksRef.current = new Set(links.map((l) => l.id))
 
   useEffect(() => {
     const el = containerRef.current
@@ -111,15 +116,17 @@ export default function Board({
               const a = noteById.get(l.from)
               const b = noteById.get(l.to)
               if (!a || !b || a.groupId || b.groupId) return null
-              const ax = a.x + (a.w || 250) / 2, ay = a.y + 6
-              const bx = b.x + (b.w || 250) / 2, by = b.y + 6
-              const dist = Math.hypot(bx - ax, by - ay)
-              const sag = Math.min(140, 26 + dist * 0.16)
-              const d = `M ${ax} ${ay} Q ${(ax + bx) / 2} ${(ay + by) / 2 + sag} ${bx} ${by}`
+              const d = ropePath(a, b)
+              const fresh = !initialLinksRef.current.has(l.id)
               return (
-                <g key={l.id} className="rope">
-                  <path className="rope-shadow" d={d} />
-                  <path className="rope-line" d={d} />
+                <g
+                  key={l.id}
+                  className={`rope ${fresh ? 'rope-new' : ''}`}
+                  data-from={l.from}
+                  data-to={l.to}
+                >
+                  <path className="rope-shadow" pathLength="1" d={d} />
+                  <path className="rope-line" pathLength="1" d={d} />
                   <path
                     className="rope-hit"
                     d={d}

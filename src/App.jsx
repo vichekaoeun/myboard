@@ -148,6 +148,9 @@ export default function App() {
     store.addPin(-560, -40, '#3a7bd5')
     // A sample red string so linking is discoverable (use the Link tool)
     store.addLink(welcome.id, envelopeNote.id)
+    // Persist the seed right away so a quick reload can't lose it while the
+    // debounced save is still pending.
+    store.saveNow()
     // Frame & center the freshly seeded board so it fills the screen
     requestAnimationFrame(() => {
       const st = store.getState()
