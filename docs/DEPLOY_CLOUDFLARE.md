@@ -38,6 +38,10 @@ npx wrangler d1 create myboard          # copy the printed database_id
 
 Paste that id into `wrangler.toml` → `[[d1_databases]] database_id`.
 
+Open the Cloudflare dashboard → **Compute (Workers & Pages)** once. This creates
+your `workers.dev` subdomain, which `wrangler deploy` requires. Without it deploy
+fails with `code: 10063 — You need a workers.dev subdomain`.
+
 Create the tables in production:
 
 ```bash
@@ -45,7 +49,8 @@ npm run db:remote
 ```
 
 Set the production origin in `wrangler.toml` → `[vars] PUBLIC_BASE_URL`
-(e.g. `https://board.example.com`), then add secrets:
+(e.g. `https://myboard.<your-subdomain>.workers.dev` or a custom domain), then
+add secrets:
 
 ```bash
 npx wrangler secret put SESSION_SECRET      # long random string
