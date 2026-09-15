@@ -10,7 +10,8 @@ import {
   ZoomInIcon, ZoomOutIcon,
 } from './icons.jsx'
 import * as store from './store.js'
-import { getSession, hasSupabase, onAuthChange, signInWithEmail, signInWithGoogle, signOut } from './supabase.js'
+import { getSession, getAuthProviders, hasSupabase, onAuthChange, signInWithEmail, signInWithGoogle, signOut } from './supabase.js'
+import { apiConfig, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, hasApi } from './api.js'
 
 const TOOLS = [
   { id: 'move', label: 'Move', icon: MoveIcon },
@@ -48,50 +49,65 @@ export default function App() {
   const [locationEditor, setLocationEditor] = useState(null)
   const [musicEditor, setMusicEditor] = useState(null)
 
-  const cloud = hasSupabase()
-  const [session, setSession] = useState(null)
+  const backend = hasApi() ? 'api' : hasSupabase() ? 'supabase' : 'local'
+  const cloud = backend !== 'local'
+  const [session, setSession] = useState(null) // { id, email }
   const [authChecked, setAuthChecked] = useState(!cloud)
   const [boardReady, setBoardReady] = useState(!cloud)
   const loadedUserRef = useRef(null)
 
   // Resolve auth, then load that account's own board (namespaced local cache +
-  // cloud row). No Supabase env => local-only mode, no sign-in required.
-  useEffect(() => {
-    if (!cloud) return
-    let active = true
-    const enter = async (s) => {
-      if (!s) {
-        if (!active) return
-        loadedUserRef.current = null
-        setSession(null); setBoardReady(false); setAuthChecked(true)
-        store.resetBoard()
-        return
-      }
-      if (s.user.id === loadedUserRef.current) {
-        if (active) { setSession(s); setBoardReady(true); setAuthChecked(true) }
-        return
-      }
-      loadedUserRef.current = s.user.id
-      await store.loadBoard(s.user.id)
-      if (!active) return
-      setSession(s); setBoardReady(true); setAuthChecked(true)
+  // backend row). With no backend configured the board is local-only.
+  const enter = useCallback(async (user) => {
+    if (!user) {
+      loadedUserRef.current = null
+      setSession(null); setBoardReady(false); setAuthChecked(true)
+      store.resetBoard()
+      return
     }
-    getSession().then((s) => { if (active) enter(s) })
-    const unsub = onAuthChange((s) => { enter(s) })
+    if (user.id === loadedUserRef.current) {
+      setSession(user); setBoardReady(true); setAuthChecked(true)
+      return
+    }
+    loadedUserRef.current = user.id
+    await store.loadBoard(user.id)
+    setSession(user); setBoardReady(true); setAuthChecked(true)
+  }, [])
+
+  useEffect(() => {
+    if (backend === 'local') return
+    let active = true
+    if (backend === 'api') {
+      apiMe().then((res) => { if (active) enter(res && res.user ? res.user : null) })
+      return () => { active = false }
+    }
+    const toUser = (s) => (s ? { id: s.user.id, email: s.user.email } : null)
+    getSession().then((s) => { if (active) enter(toUser(s)) })
+    const unsub = onAuthChange((s) => enter(toUser(s)))
     return () => { active = false; unsub() }
-  }, [cloud])
+  }, [backend, enter])
 
   const handleGoogleSignIn = useCallback(async () => {
+    if (backend === 'api') { apiLoginWithGoogle(); return null }
     const { error } = await signInWithGoogle()
     return error ? error.message : null
-  }, [])
+  }, [backend])
 
   const handleEmailSignIn = useCallback(async (email) => {
+    if (backend === 'api') {
+      const { error } = await apiRequestMagicLink(email)
+      return error ? error.message : null
+    }
     const { error } = await signInWithEmail(email)
     return error ? error.message : null
-  }, [])
+  }, [backend])
 
-  const handleSignOut = useCallback(() => { signOut() }, [])
+  const handleSignOut = useCallback(async () => {
+    if (backend === 'api') { await apiLogout(); enter(null); return }
+    signOut()
+  }, [backend, enter])
+
+  const loadProviders = backend === 'api' ? apiConfig : getAuthProviders
 
   useLayoutEffect(() => {
     if (!boardReady || !containerRef.current) return
@@ -136,7 +152,7 @@ export default function App() {
     if (!boardReady) return
     const s = store.getState()
     if (s.notes.length || s.envelopes.length || s.pins.length) return
-    const seedFlag = 'myboard.seeded:' + (session?.user?.id || 'local')
+    const seedFlag = 'myboard.seeded:' + (session?.id || 'local')
     if (localStorage.getItem(seedFlag)) return
     localStorage.setItem(seedFlag, '1')
     const welcome = store.addNote(-430, -150, '<p>Hi, welcome to your board!</p><p>Double-click anywhere (or hit <b>Note</b> above) to drop new notes.</p>', 'white')
@@ -598,7 +614,7 @@ export default function App() {
     return <div className="auth-splash" aria-busy="true" />
   }
   if (cloud && !session) {
-    return <AuthGate onGoogle={handleGoogleSignIn} onEmail={handleEmailSignIn} />
+    return <AuthGate onGoogle={handleGoogleSignIn} onEmail={handleEmailSignIn} loadProviders={loadProviders} />
   }
   if (!boardReady) {
     return <div className="auth-splash" aria-busy="true" />
@@ -721,9 +737,9 @@ export default function App() {
         </div>
 
         {cloud && session && (
-          <div className="tb-user" title={session.user.email || 'Signed in'}>
+          <div className="tb-user" title={session.email || 'Signed in'}>
             <span className="tb-user-dot" aria-hidden="true" />
-            <span className="tb-user-email">{session.user.email || 'Signed in'}</span>
+            <span className="tb-user-email">{session.email || 'Signed in'}</span>
             <button className="icon-btn" onClick={handleSignOut} title="Sign out"><SignOutIcon size={15} /></button>
           </div>
         )}

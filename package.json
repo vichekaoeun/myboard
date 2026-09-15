@@ -6,7 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "worker:dev": "wrangler dev",
+    "worker:deploy": "wrangler deploy",
+    "build:cloudflare": "VITE_BACKEND=cloudflare vite build",
+    "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy",
+    "db:local": "wrangler d1 execute myboard --local --file=./db/schema.sql",
+    "db:remote": "wrangler d1 execute myboard --remote --file=./db/schema.sql"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",
@@ -15,6 +21,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "wrangler": "^4.42.0"
   }
 }

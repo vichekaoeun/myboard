@@ -1,0 +1,19 @@
+# Copy to `.dev.vars` for local `wrangler dev`. Secrets stay out of git.
+
+# Signs the session cookie. Use a long random string; set a different one in prod.
+SESSION_SECRET=dev-only-change-me
+
+# Origin used to build magic-link and OAuth URLs during local dev.
+PUBLIC_BASE_URL=http://localhost:5173
+
+# Return the magic link in the API response instead of emailing it (local only).
+DEV_RETURN_LINK=true
+
+# Google OAuth (create at console.cloud.google.com). Callback:
+#   http://localhost:8787/api/auth/google/callback  (and your prod URL)
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# Transactional email via Resend (https://resend.com). Optional locally.
+RESEND_API_KEY=
+EMAIL_FROM="My Board <onboarding@resend.dev>"

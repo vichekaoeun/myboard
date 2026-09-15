@@ -1,22 +1,22 @@
 import React, { useEffect, useState } from 'react'
 import { GoogleIcon } from './icons.jsx'
-import { getAuthProviders } from './supabase.js'
 
 // Full-screen sign-in wall. Shown whenever the app is cloud-backed but the
 // visitor is not signed in, so nobody can open or edit a board.
-export function AuthGate({ onGoogle, onEmail }) {
+export function AuthGate({ onGoogle, onEmail, loadProviders }) {
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [googleOn, setGoogleOn] = useState(null) // null = unknown (still loading)
+  const [providers, setProviders] = useState(null) // { google, email } once known
 
-  // Only offer Google if the Supabase project actually has it enabled.
+  // Only offer the providers this deployment actually has enabled.
   useEffect(() => {
     let active = true
-    getAuthProviders().then((p) => { if (active && p) setGoogleOn(!!p.google) })
+    if (!loadProviders) return
+    Promise.resolve(loadProviders()).then((p) => { if (active && p) setProviders(p) })
     return () => { active = false }
-  }, [])
+  }, [loadProviders])
 
   const friendly = (message) => {
     if (!message) return message
@@ -24,7 +24,7 @@ export function AuthGate({ onGoogle, onEmail }) {
       return 'Google sign-in isn’t enabled for this project yet — use the email link below.'
     }
     if (/redirect|url/i.test(message)) {
-      return 'This site isn’t in the allowed redirect URLs yet — add it in Supabase → Authentication → URL Configuration.'
+      return 'This site isn’t in the allowed redirect URLs yet — add it in the provider settings.'
     }
     return message
   }
@@ -52,7 +52,8 @@ export function AuthGate({ onGoogle, onEmail }) {
     else setSent(true)
   }
 
-  const showGoogle = googleOn !== false
+  const showGoogle = providers ? providers.google !== false : true
+  const showEmail = providers ? providers.email !== false : true
 
   return (
     <div className="auth-screen">
@@ -67,7 +68,7 @@ export function AuthGate({ onGoogle, onEmail }) {
               <GoogleIcon size={18} />
               Continue with Google
             </button>
-            <div className="auth-or"><span>or</span></div>
+            {showEmail && <div className="auth-or"><span>or</span></div>}
           </>
         )}
 
@@ -78,7 +79,7 @@ export function AuthGate({ onGoogle, onEmail }) {
               Use a different email
             </button>
           </div>
-        ) : (
+        ) : showEmail ? (
           <form className="auth-form" onSubmit={handleEmail}>
             <input
               className="auth-input"
@@ -94,6 +95,10 @@ export function AuthGate({ onGoogle, onEmail }) {
               Email me a sign-in link
             </button>
           </form>
+        ) : null}
+
+        {!showGoogle && !showEmail && (
+          <div className="auth-error">Sign-in isn’t configured yet.</div>
         )}
 
         {error && <div className="auth-error">{error}</div>}
