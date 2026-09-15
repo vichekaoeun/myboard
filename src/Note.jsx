@@ -1,19 +1,26 @@
 import React, { memo, useEffect, useRef } from 'react'
 import { PushPin } from './art.jsx'
-import { NOTE_COLORS, NOTE_LINE } from './store.js'
+import { NOTE_COLORS } from './store.js'
+
+function noteTitle(n) {
+  const t = (n.text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!t) return 'Untitled note'
+  return t.length > 42 ? t.slice(0, 42).trimEnd() + '…' : t
+}
 
 export default memo(function NoteView({
   item, x, y, scale = 1, rotation, tick,
-  selected, mode, getZoom,
-  onSelect, onChange, onMoveEnd, onDrop, onDragMove, onContextMenu, z,
+  selected, mode, getZoom, linkSource, connections,
+  onSelect, onChange, onLiveHeight, onMoveEnd, onDrop, onDragMove, onContextMenu, z,
+  onAddClip, onLinkClick, onOpenLink,
 }) {
   const wrapRef = useRef(null)
   const paperRef = useRef(null)
   const edRef = useRef(null)
   const lastHTML = useRef(null)
   const drag = useRef(null)
+  const selectionRef = useRef(null)
 
-  // Restore position after a fan snap-back (tick changes without item change).
   useEffect(() => {
     const w = wrapRef.current
     if (w && !drag.current) {
@@ -22,7 +29,6 @@ export default memo(function NoteView({
     }
   }, [x, y, tick])
 
-  // set editor content when external text changes (initial mount, undo, import)
   useEffect(() => {
     const ed = edRef.current
     if (ed && lastHTML.current !== (item.text || '')) {
@@ -31,17 +37,22 @@ export default memo(function NoteView({
     }
   }, [item.text])
 
+  const lastH = useRef(0)
+  useEffect(() => { lastH.current = item.h || 0 }, [item.h])
+
   useEffect(() => {
     const paper = paperRef.current
-    const wrap = wrapRef.current
-    if (!paper || !wrap) return
+    if (!paper || !onLiveHeight) return
     const ro = new ResizeObserver(() => {
       const measured = Math.max(90, Math.round(paper.offsetHeight))
-      if (Math.abs(measured - (item.h || 0)) > 6) onChange(item.id, { h: measured })
+      if (Math.abs(measured - lastH.current) > 6) {
+        lastH.current = measured
+        onLiveHeight(item.id, { h: measured })
+      }
     })
     ro.observe(paper)
     return () => ro.disconnect()
-  }, [item.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [item.id, onLiveHeight])
 
   function commit() {
     const ed = edRef.current
@@ -53,8 +64,40 @@ export default memo(function NoteView({
     }
   }
 
+  function rememberSelection() {
+    const ed = edRef.current
+    const selection = window.getSelection()
+    if (!ed || !selection || !selection.rangeCount || !ed.contains(selection.anchorNode)) return
+    selectionRef.current = selection.getRangeAt(0).cloneRange()
+  }
+
+  function restoreSelection() {
+    const ed = edRef.current
+    const range = selectionRef.current
+    if (!ed || !range) return false
+    ed.focus()
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    return true
+  }
+
+  function format(command, value = null) {
+    restoreSelection()
+    document.execCommand('styleWithCSS', false, true)
+    document.execCommand(command, false, value)
+    rememberSelection()
+    commit()
+  }
+
   function startDrag(e) {
     if (e.button !== undefined && e.button !== 0) return
+    if (mode === 'link' && onLinkClick) {
+      e.preventDefault()
+      e.stopPropagation()
+      onLinkClick(item.id)
+      return
+    }
     e.preventDefault()
     e.stopPropagation()
     onSelect(item.id)
@@ -102,31 +145,58 @@ export default memo(function NoteView({
     e.currentTarget.addEventListener('pointercancel', onUp)
   }
 
-  function startResize(e) {
+  function startResize(e, edge) {
     e.preventDefault()
     e.stopPropagation()
     const sc = getZoom()
     const startW = item.w
     const startH = item.h || 300
+    const startX = item.x
+    const startY = item.y
     const start = { sx: e.clientX, sy: e.clientY }
+
     const onMove = (ev) => {
       const ns = getZoom()
-      const nw = Math.max(150, startW + (ev.clientX - start.sx) / ns)
-      const nh = Math.max(110, startH + (ev.clientY - start.sy) / ns)
+      const dx = (ev.clientX - start.sx) / ns
+      const dy = (ev.clientY - start.sy) / ns
+
+      let nw = startW, nh = startH, nx = startX, ny = startY
+
+      if (edge.includes('e')) nw = Math.max(150, startW + dx)
+      if (edge.includes('w')) { nw = Math.max(150, startW - dx); nx = startX + (startW - nw) }
+      if (edge.includes('s')) nh = Math.max(110, startH + dy)
+      if (edge.includes('n')) { nh = Math.max(110, startH - dy); ny = startY + (startH - nh) }
+
       const w = wrapRef.current
       if (w) {
         w.style.width = nw + 'px'
         w.style.height = nh + 'px'
+        w.style.left = nx + 'px'
+        w.style.top = ny + 'px'
+      }
+      const paper = paperRef.current
+      if (paper) {
+        paper.style.width = nw + 'px'
+        paper.style.height = nh + 'px'
       }
     }
     const onUp = (ev) => {
       const ns = getZoom()
-      const nw = Math.max(150, startW + (ev.clientX - start.sx) / ns)
-      const nh = Math.max(110, startH + (ev.clientY - start.sy) / ns)
+      const dx = (ev.clientX - start.sx) / ns
+      const dy = (ev.clientY - start.sy) / ns
+
+      let nw = startW, nh = startH, nx = startX, ny = startY
+      if (edge.includes('e')) nw = Math.max(150, startW + dx)
+      if (edge.includes('w')) { nw = Math.max(150, startW - dx); nx = startX + (startW - nw) }
+      if (edge.includes('s')) nh = Math.max(110, startH + dy)
+      if (edge.includes('n')) { nh = Math.max(110, startH - dy); ny = startY + (startH - nh) }
+
       ev.currentTarget.removeEventListener('pointermove', onMove)
       ev.currentTarget.removeEventListener('pointerup', onUp)
       if (ev.currentTarget.releasePointerCapture) { try { ev.currentTarget.releasePointerCapture(ev.pointerId) } catch (_) {} }
-      onChange(item.id, { w: Math.round(nw), h: Math.round(nh) })
+      onChange(item.id, { w: Math.round(nw), h: Math.round(nh), sh: Math.round(nh), x: Math.round(nx), y: Math.round(ny) })
+      const p = paperRef.current
+      if (p) p.style.height = ''
     }
     e.currentTarget.setPointerCapture(e.pointerId)
     e.currentTarget.addEventListener('pointermove', onMove)
@@ -136,6 +206,7 @@ export default memo(function NoteView({
   function beginLink() {
     const url = window.prompt('Paste the link address (https://…)')
     if (!url) return
+    restoreSelection()
     const ok = document.execCommand('createLink', false, url.trim())
     if (ok) {
       const ed = edRef.current
@@ -152,27 +223,8 @@ export default memo(function NoteView({
     }
   }
 
-  function insertImage(url) {
-    const ed = edRef.current
-    if (!ed) return
-    ed.focus()
-    document.execCommand('insertHTML', false, `<span contenteditable="false"><img class="note-img" src="${url}" /></span>`)
-    commit()
-  }
-
-  function pickImage(e) {
-    e.preventDefault()
-    e.stopPropagation()
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = 'image/*'
-    input.onchange = async () => {
-      const file = input.files && input.files[0]
-      if (!file) return
-      const url = await downscale(file)
-      insertImage(url)
-    }
-    input.click()
+  function attachImage(url) {
+    onAddClip(url, item.x + item.w + 28, item.y + 18)
   }
 
   function handleDrop(e) {
@@ -181,7 +233,7 @@ export default memo(function NoteView({
     if (!e.dataTransfer) return
     const file = [...(e.dataTransfer.files || [])].find((f) => f.type && f.type.startsWith('image/'))
     if (file) {
-      downscale(file).then(insertImage)
+      downscale(file).then(attachImage)
       return
     }
     const text = e.dataTransfer.getData('text/plain')
@@ -198,12 +250,11 @@ export default memo(function NoteView({
     const files = [...(e.clipboardData.files || [])].filter((f) => f.type && f.type.startsWith('image/'))
     if (files.length) {
       e.preventDefault()
-      downscale(files[0]).then(insertImage)
+      downscale(files[0]).then(attachImage)
     }
   }
 
   const color = NOTE_COLORS[item.color] || NOTE_COLORS.white
-  const line = NOTE_LINE[item.color] || NOTE_LINE.white
 
   const base = {
     left: x,
@@ -215,13 +266,12 @@ export default memo(function NoteView({
   }
 
   return (
-    <div ref={wrapRef} data-id={item.id} className={`note ${selected ? 'note-selected' : ''} note-${item.color}`} style={base} onContextMenu={(e) => { if (onContextMenu) { e.preventDefault(); e.stopPropagation(); onContextMenu(e, item, 'note') } }}>
+    <div ref={wrapRef} data-id={item.id} className={`note ${selected ? 'note-selected' : ''} ${linkSource ? 'note-link-source' : ''} note-${item.color}`} style={base} onContextMenu={(e) => { if (onContextMenu) { e.preventDefault(); e.stopPropagation(); onContextMenu(e, item, 'note') } }}>
       <div
         className="scale-layer"
         style={{ width: item.w, transform: scale === 1 ? undefined : `scale(${scale})`, transformOrigin: '0 0' }}
       >
-        <div ref={paperRef} className="note-paper note-paper-colored" style={{ background: color }} onPointerDown={(e) => { e.stopPropagation(); onSelect(item.id) }}>
-          <div className="note-ruled" style={ruledStyle(line, item.color)} />
+        <div ref={paperRef} className="note-paper note-paper-colored" style={{ width: item.w, minHeight: item.sh || item.h || 300, background: color }} onPointerDown={(e) => { e.stopPropagation(); if (mode === 'link' && onLinkClick) { e.preventDefault(); onLinkClick(item.id); return } onSelect(item.id) }}>
           <div
             ref={edRef}
             className="note-ed"
@@ -232,6 +282,8 @@ export default memo(function NoteView({
             onClick={openLink}
             onInput={commit}
             onBlur={commit}
+            onKeyUp={rememberSelection}
+            onMouseUp={rememberSelection}
             onPaste={handlePaste}
             onDrop={handleDrop}
             onKeyDown={(e) => {
@@ -239,29 +291,89 @@ export default memo(function NoteView({
               if (e.key === 'Escape') e.currentTarget.blur()
             }}
           />
-          <div className="note-pin-handle" onPointerDown={startDrag} onClick={(e) => { e.stopPropagation(); onSelect(item.id) }}>
+          <div className="note-drag-edge note-drag-edge-top" onPointerDown={startDrag} />
+          <div className="note-drag-edge note-drag-edge-right" onPointerDown={startDrag} />
+          <div className="note-drag-edge note-drag-edge-bottom" onPointerDown={startDrag} />
+          <div className="note-drag-edge note-drag-edge-left" onPointerDown={startDrag} />
+          <div className="note-pin-handle" onPointerDown={startDrag} onClick={(e) => { e.stopPropagation(); if (mode === 'link') return; onSelect(item.id) }}>
             <PushPin color="#e95d5d" size={Math.max(26, 34)} />
           </div>
           {selected && mode !== 'fan' && (
-            <div className="note-formatbar" onMouseDown={(e) => e.preventDefault()}>
-              <button title="Bold" onClick={() => { document.execCommand('bold'); commit() }}><b>B</b></button>
-              <button title="Italic" onClick={() => { document.execCommand('italic'); commit() }}><i>I</i></button>
+            <div className="note-formatbar" onMouseDown={(e) => {
+              rememberSelection()
+              if (e.target.tagName !== 'SELECT') e.preventDefault()
+            }}>
+              <select title="Font family" defaultValue="" onChange={(e) => format('fontName', e.target.value)}>
+                <option value="" disabled>Font</option>
+                <option value="Caveat">Handwritten</option>
+                <option value="Georgia">Serif</option>
+                <option value="Arial">Sans</option>
+                <option value="Courier New">Mono</option>
+              </select>
+              <select title="Font size" defaultValue="3" onChange={(e) => format('fontSize', e.target.value)}>
+                <option value="1">Small</option>
+                <option value="3">Normal</option>
+                <option value="5">Large</option>
+                <option value="7">Huge</option>
+              </select>
+              <button title="Bold" onClick={() => format('bold')}><b>B</b></button>
+              <button title="Italic" onClick={() => format('italic')}><i>I</i></button>
+              <button title="Underline" onClick={() => format('underline')}><u>U</u></button>
+              <button title="Strikethrough" onClick={() => format('strikeThrough')}><s>S</s></button>
+              <button title="Bulleted list" onClick={() => format('insertUnorderedList')}>•</button>
+              <button title="Numbered list" onClick={() => format('insertOrderedList')}>1.</button>
+              <button title="Align left" onClick={() => format('justifyLeft')}>≡</button>
+              <button title="Center" onClick={() => format('justifyCenter')}>≡</button>
+              <button title="Align right" onClick={() => format('justifyRight')}>≡</button>
               <button title="Add a link" onClick={beginLink}><span className="fmt-link">↗</span></button>
-              <button title="Attach an image" onClick={pickImage}><span className="fmt-img">▧</span></button>
+              <button title="Clear formatting" onClick={() => format('removeFormat')}>Tx</button>
             </div>
           )}
-          {selected && mode !== 'fan' && <div className="note-resize" onPointerDown={startResize} />}
+          {selected && mode !== 'fan' && connections && (connections.from.length > 0 || connections.to.length > 0) && (
+            <div className="note-links" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+              {connections.from.length > 0 && (
+                <>
+                  <div className="nl-title">Connected from:</div>
+                  <ul className="nl-list">
+                    {connections.from.map((n) => (
+                      <li key={n.id}>
+                        <button type="button" onClick={() => onOpenLink && onOpenLink(n.id)}>“{noteTitle(n)}”</button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {connections.to.length > 0 && (
+                <>
+                  <div className="nl-title">Links to:</div>
+                  <ul className="nl-list">
+                    {connections.to.map((n) => (
+                      <li key={n.id}>
+                        <button type="button" onClick={() => onOpenLink && onOpenLink(n.id)}>“{noteTitle(n)}”</button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
+          {selected && mode !== 'fan' && (
+            <div className="note-resize">
+              <div className="resize-nw" onPointerDown={(e) => startResize(e, 'nw')} />
+              <div className="resize-ne" onPointerDown={(e) => startResize(e, 'ne')} />
+              <div className="resize-sw" onPointerDown={(e) => startResize(e, 'sw')} />
+              <div className="resize-se" onPointerDown={(e) => startResize(e, 'se')} />
+              <div className="resize-n" onPointerDown={(e) => startResize(e, 'n')} />
+              <div className="resize-s" onPointerDown={(e) => startResize(e, 's')} />
+              <div className="resize-e" onPointerDown={(e) => startResize(e, 'e')} />
+              <div className="resize-w" onPointerDown={(e) => startResize(e, 'w')} />
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
 })
-
-function ruledStyle(lineColor, noteColor) {
-  return {
-    backgroundImage: `linear-gradient(${lineColor} 1px, transparent 1px)`,
-  }
-}
 
 async function downscale(file) {
   const maxDim = 1500

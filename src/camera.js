@@ -134,6 +134,8 @@ export class Camera {
     items.notes.forEach((n) => add(n.x, n.y, n.w, n.h))
     items.pins.forEach((p) => add(p.x - 20, p.y - 60, 40, 60))
     items.envelopes.forEach((e) => add(e.x, e.y, e.w, e.h))
+    ;(items.clips || []).forEach((c) => add(c.x, c.y, c.w || 220, c.h || 180))
+    ;(items.music || []).forEach((m) => add(m.x, m.y, m.w || 320, m.h || 180))
     if (!boxes.length) {
       this.animateTo(window.innerWidth / 2, window.innerHeight / 2, 1)
       return

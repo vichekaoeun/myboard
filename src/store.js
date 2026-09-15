@@ -65,7 +65,10 @@ function defaultState() {
     view: { x: (typeof window !== 'undefined' ? window.innerWidth : 1280) / 2, y: (typeof window !== 'undefined' ? window.innerHeight : 800) / 2, s: 1 },
     notes: [],
     pins: [],
+    clips: [],
+    music: [],
     envelopes: [],
+    links: [],
     selected: null,
     mode: 'move',
   }
@@ -113,7 +116,10 @@ export async function initStore() {
         ...saved,
         notes: saved.notes || [],
         pins: saved.pins || [],
+        clips: saved.clips || [],
+        music: saved.music || [],
         envelopes: saved.envelopes || [],
+        links: Array.isArray(saved.links) ? saved.links : [],
         selected: null,
         view: { ...base.view, ...(saved.view || {}) },
       }
@@ -124,13 +130,43 @@ export async function initStore() {
     x: isFinite(n.x) ? n.x : 0, y: isFinite(n.y) ? n.y : 0,
     w: n.w || 250, h: n.h || 300,
     color: n.color || 'white', text: n.text || '',
+    attachments: Array.isArray(n.attachments) ? n.attachments : [],
     rotation: n.rotation ?? 0, groupId: null,
   }))
+  merged.clips = merged.clips.map((c, i) => ({
+    id: c.id || uid() + i,
+    x: isFinite(c.x) ? c.x : 0, y: isFinite(c.y) ? c.y : 0,
+    w: c.w || 220, h: c.h || 180, url: c.url || '', rotation: c.rotation ?? 0,
+  })).filter((c) => c.url)
+  merged.music = merged.music.map((m, i) => ({
+    id: m.id || uid() + i,
+    x: isFinite(m.x) ? m.x : 0, y: isFinite(m.y) ? m.y : 0,
+    w: m.w || 320, h: m.h || 180, url: m.url || '', title: m.title || 'Untitled mixtape',
+  })).filter((m) => m.url)
+  merged.notes.forEach((n) => {
+    ;(n.attachments || []).forEach((attachment, i) => {
+      if (attachment.url) merged.clips.push({
+        id: attachment.id || uid() + i,
+        x: n.x + n.w + 28,
+        y: n.y + 18 + i * 18,
+        w: 220,
+        h: 180,
+        url: attachment.url,
+        rotation: Math.random() * 4 - 2,
+      })
+    })
+    delete n.attachments
+  })
   merged.envelopes = merged.envelopes.map((e, i) => ({
     id: e.id || uid() + i,
     x: isFinite(e.x) ? e.x : 0, y: isFinite(e.y) ? e.y : 0,
     w: e.w || 300, h: e.h || 210,
     title: e.title || 'Untitled', noteIds: e.noteIds || [], expanded: !!e.expanded,
+  }))
+  merged.pins = merged.pins.map((p, i) => ({
+    id: p.id || uid() + i,
+    x: isFinite(p.x) ? p.x : 0, y: isFinite(p.y) ? p.y : 0,
+    color: p.color || '#d64545', location: p.location || null,
   }))
   merged.envelopes.forEach((e) => {
     const ids = new Set(e.noteIds)
@@ -140,6 +176,10 @@ export async function initStore() {
       if (!inEnv && n.groupId === e.id) n.groupId = null
     })
   })
+  const noteIdSet = new Set(merged.notes.map((n) => n.id))
+  merged.links = (merged.links || [])
+    .filter((l) => l && noteIdSet.has(l.from) && noteIdSet.has(l.to) && l.from !== l.to)
+    .map((l, i) => ({ id: l.id || uid() + i, from: l.from, to: l.to }))
   state = merged
   snapshot = merged
   return merged
@@ -265,7 +305,7 @@ export function findEnvelope(id) {
 
 export function addNote(x, y, text = '', color = 'white') {
   const note = {
-    id: uid(), x: x - 125, y: y - 150, w: 250, h: 300,
+    id: uid(), x: x - 125, y: y - 150, w: 250, h: 300, sh: 300,
     color, text, rotation: (Math.random() * 4 - 2), groupId: null,
   }
   const p = clampToCork(note.x, note.y, note.w, note.h)
@@ -276,9 +316,21 @@ export function addNote(x, y, text = '', color = 'white') {
 
 export function addPin(x, y, color) {
   const colors = ['#d64545', '#3a7bd5', '#f2b632', '#3aa655', '#8a6dc9']
-  const pin = { id: uid(), x, y, color: color || colors[Math.floor(Math.random() * colors.length)] }
+  const pin = { id: uid(), x, y, color: color || colors[Math.floor(Math.random() * colors.length)], location: null }
   mutate((s) => ({ ...s, pins: [...s.pins, pin], selected: pin.id, mode: 'move' }))
   return pin
+}
+
+export function addClip(url, x, y) {
+  const clip = { id: uid(), x, y, w: 220, h: 180, url, rotation: Math.random() * 4 - 2 }
+  mutate((s) => ({ ...s, clips: [...s.clips, clip], selected: clip.id, mode: 'move' }))
+  return clip
+}
+
+export function addMusic(url, x, y, title) {
+  const music = { id: uid(), x, y, w: 320, h: 180, url, title: title || 'Untitled mixtape' }
+  mutate((s) => ({ ...s, music: [...s.music, music], selected: music.id, mode: 'move' }))
+  return music
 }
 
 export function addEnvelope(x, y) {
@@ -294,10 +346,27 @@ export function updateNote(id, patch) {
   }))
 }
 
+// Live height sync during typing: updates state without polluting undo history.
+export function updateNoteLive(id, patch) {
+  state = {
+    ...state,
+    notes: state.notes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+  }
+  emit()
+  scheduleSave()
+}
+
 export function updateEnvelope(id, patch) {
   mutate((s) => ({
     ...s,
     envelopes: s.envelopes.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+  }))
+}
+
+export function updatePin(id, patch) {
+  mutate((s) => ({
+    ...s,
+    pins: s.pins.map((p) => (p.id === id ? { ...p, ...patch } : p)),
   }))
 }
 
@@ -307,7 +376,7 @@ export function moveNote(id, x, y) {
     const rest = s.notes.filter((n) => n.id !== id)
     const item = s.notes.find((n) => n.id === id)
     if (!item) return s
-    const p = clampToCorkCx(x, y, item.w || 250, item.h || 300)
+    const p = clampToCork(x, y, item.w || 250, item.h || 300)
     return { ...s, notes: [...rest, { ...item, x: p.x, y: p.y }] }
   })
 }
@@ -331,6 +400,37 @@ export function movePin(id, x, y) {
     // clamp so the whole pin can never be placed off the cork either.
     const p = clampToCork(x - 20, y - 60, 40, 80)
     return { ...s, pins: [...rest, { ...item, x: p.x + 20, y: p.y + 60 }] }
+  })
+}
+
+export function moveClip(id, x, y) {
+  mutate((s) => {
+    const rest = s.clips.filter((c) => c.id !== id)
+    const item = s.clips.find((c) => c.id === id)
+    if (!item) return s
+    const p = clampToCork(x, y, item.w, item.h)
+    return { ...s, clips: [...rest, { ...item, x: p.x, y: p.y }] }
+  })
+}
+
+export function updateClip(id, patch) {
+  mutate((s) => ({
+    ...s,
+    clips: s.clips.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+  }))
+}
+
+export function updateMusic(id, patch) {
+  mutate((s) => ({ ...s, music: s.music.map((m) => (m.id === id ? { ...m, ...patch } : m)) }))
+}
+
+export function moveMusic(id, x, y) {
+  mutate((s) => {
+    const rest = s.music.filter((m) => m.id !== id)
+    const item = s.music.find((m) => m.id === id)
+    if (!item) return s
+    const p = clampToCork(x, y, item.w, item.h)
+    return { ...s, music: [...rest, { ...item, x: p.x, y: p.y }] }
   })
 }
 
@@ -366,10 +466,34 @@ export function toggleEnvelope(id) {
   }))
 }
 
+// Red-string links between notes (detective-corkboard style). Stored directed
+// (from → to) so we can show backlinks, but rendered as one undirected rope.
+export function addLink(from, to) {
+  if (!from || !to || from === to) return null
+  let created = null
+  mutate((s) => {
+    const links = s.links || []
+    const dupe = links.some(
+      (l) => (l.from === from && l.to === to) || (l.from === to && l.to === from)
+    )
+    if (dupe) return s
+    created = { id: uid(), from, to }
+    return { ...s, links: [...links, created] }
+  })
+  return created
+}
+
+export function removeLink(id) {
+  mutate((s) => ({ ...s, links: (s.links || []).filter((l) => l.id !== id) }))
+}
+
 export function deleteItem(id) {
   mutate((s) => {
     const notes = s.notes.filter((n) => n.id !== id)
     const pins = s.pins.filter((p) => p.id !== id)
+    const clips = s.clips.filter((c) => c.id !== id)
+    const music = s.music.filter((m) => m.id !== id)
+    const links = (s.links || []).filter((l) => l.from !== id && l.to !== id)
     const env = s.envelopes.find((e) => e.id === id)
     if (env) {
       const gid = new Set(env.noteIds)
@@ -378,6 +502,9 @@ export function deleteItem(id) {
         notes: notes.map((n) => (gid.has(n.id) ? { ...n, groupId: null } : n)),
         envelopes: s.envelopes.filter((e) => e.id !== id),
         pins,
+        clips,
+        music,
+        links,
         selected: null,
       }
     }
@@ -387,6 +514,9 @@ export function deleteItem(id) {
       ...s,
       notes,
       pins,
+      clips,
+      music,
+      links,
       envelopes: gid
         ? s.envelopes.map((e) =>
             e.id === gid
@@ -417,12 +547,22 @@ export function duplicateItem(id) {
       const copy = { ...pin, id: uid(), x: pin.x + 26, y: pin.y + 26 }
       return { ...s, pins: [...pins, copy], selected: copy.id }
     }
+    const clip = s.clips.find((c) => c.id === id)
+    if (clip) {
+      const copy = { ...clip, id: uid(), x: clip.x + 26, y: clip.y + 26 }
+      return { ...s, clips: [...s.clips, copy], selected: copy.id }
+    }
+    const music = s.music.find((m) => m.id === id)
+    if (music) {
+      const copy = { ...music, id: uid(), x: music.x + 26, y: music.y + 26 }
+      return { ...s, music: [...s.music, copy], selected: copy.id }
+    }
     return s
   })
 }
 
 export function clearBoard() {
-  mutate((s) => ({ ...s, notes: [], pins: [], envelopes: [], selected: null }))
+  mutate((s) => ({ ...s, notes: [], pins: [], clips: [], music: [], envelopes: [], links: [], selected: null }))
 }
 
 export function importState(data) {
@@ -444,9 +584,29 @@ export function importState(data) {
       rotation: n.rotation ?? 0,
       groupId: n.groupId || null,
     })),
-    pins: data.pins || [],
+    pins: (data.pins || []).map((p) => ({ ...p, location: p.location || null })),
+    clips: (data.clips || []).map((c) => ({ ...c, w: c.w || 220, h: c.h || 180 })).filter((c) => c.url),
+    music: (data.music || []).map((m) => ({ ...m, w: m.w || 320, h: m.h || 180, title: m.title || 'Untitled mixtape' })).filter((m) => m.url),
     envelopes: data.envelopes || [],
+    links: Array.isArray(data.links) ? data.links : [],
   }
+  const legacyClips = []
+  s.notes = s.notes.map((n) => {
+    ;(n.attachments || []).forEach((attachment, i) => {
+      if (attachment.url) legacyClips.push({
+        id: attachment.id || uid() + i,
+        x: (n.x || 0) + (n.w || 250) + 28,
+        y: (n.y || 0) + 18 + i * 18,
+        w: 220,
+        h: 180,
+        url: attachment.url,
+        rotation: Math.random() * 4 - 2,
+      })
+    })
+    const { attachments, ...note } = n
+    return note
+  })
+  s.clips.push(...legacyClips)
   s.envelopes.forEach((e) => {
     const ids = new Set(e.noteIds || [])
     s.notes.forEach((n) => {
@@ -454,6 +614,10 @@ export function importState(data) {
       else if (n.groupId === e.id) n.groupId = null
     })
   })
+  const importedIds = new Set(s.notes.map((n) => n.id))
+  s.links = s.links
+    .filter((l) => l && importedIds.has(l.from) && importedIds.has(l.to) && l.from !== l.to)
+    .map((l, i) => ({ id: l.id || uid() + i, from: l.from, to: l.to }))
   state = s
   emit()
   saveNow()
@@ -489,7 +653,10 @@ function cloudPayload() {
   return JSON.stringify({
     notes: state.notes,
     pins: state.pins,
+    clips: state.clips,
+    music: state.music,
     envelopes: state.envelopes,
+    links: state.links || [],
     view: state.view,
   })
 }
@@ -539,12 +706,15 @@ function applyRemote(rawPayload) {
   }
   if (!remote || !Array.isArray(remote.notes)) return
   const localJson = cloudPayload()
-  if (localJson === JSON.stringify({ notes: remote.notes, pins: remote.pins, envelopes: remote.envelopes, view: remote.view })) return
+  if (localJson === JSON.stringify({ notes: remote.notes, pins: remote.pins, envelopes: remote.envelopes, links: remote.links || [], view: remote.view })) return
   mutate((s) => ({
     ...s,
     notes: remote.notes || [],
     pins: remote.pins || [],
+    clips: remote.clips || [],
+    music: remote.music || [],
     envelopes: remote.envelopes || [],
+    links: remote.links || [],
     view: s.view.s === undefined ? remote.view || s.view : s.view,
   }))
 }

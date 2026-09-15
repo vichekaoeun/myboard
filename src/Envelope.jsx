@@ -82,6 +82,58 @@ export default memo(function EnvelopeView({
     el.addEventListener('pointercancel', onUp)
   }
 
+  function startResize(e, edge) {
+    e.preventDefault()
+    e.stopPropagation()
+    const sc = getZoom()
+    const startW = env.w
+    const startH = env.h
+    const startX = env.x
+    const startY = env.y
+    const start = { sx: e.clientX, sy: e.clientY }
+
+    const onMove = (ev) => {
+      const ns = getZoom()
+      const dx = (ev.clientX - start.sx) / ns
+      const dy = (ev.clientY - start.sy) / ns
+
+      let nw = startW, nh = startH, nx = startX, ny = startY
+      if (edge.includes('e')) nw = Math.max(200, startW + dx)
+      if (edge.includes('w')) { nw = Math.max(200, startW - dx); nx = startX + (startW - nw) }
+      if (edge.includes('s')) nh = Math.max(140, startH + dy)
+      if (edge.includes('n')) { nh = Math.max(140, startH - dy); ny = startY + (startH - nh) }
+
+      const w = wrapRef.current
+      if (w) {
+        w.style.width = nw + 'px'
+        w.style.height = nh + 'px'
+        w.style.left = nx + 'px'
+        w.style.top = ny + 'px'
+      }
+    }
+    const onUp = (ev) => {
+      const ns = getZoom()
+      const dx = (ev.clientX - start.sx) / ns
+      const dy = (ev.clientY - start.sy) / ns
+
+      let nw = startW, nh = startH, nx = startX, ny = startY
+      if (edge.includes('e')) nw = Math.max(200, startW + dx)
+      if (edge.includes('w')) { nw = Math.max(200, startW - dx); nx = startX + (startW - nw) }
+      if (edge.includes('s')) nh = Math.max(140, startH + dy)
+      if (edge.includes('n')) { nh = Math.max(140, startH - dy); ny = startY + (startH - nh) }
+
+      ev.currentTarget.removeEventListener('pointermove', onMove)
+      ev.currentTarget.removeEventListener('pointerup', onUp)
+      ev.currentTarget.removeEventListener('pointercancel', onUp)
+      try { ev.currentTarget.releasePointerCapture(ev.pointerId) } catch (_) {}
+      onChange(env.id, { w: Math.round(nw), h: Math.round(nh), x: Math.round(nx), y: Math.round(ny) })
+    }
+    e.currentTarget.setPointerCapture(e.pointerId)
+    e.currentTarget.addEventListener('pointermove', onMove)
+    e.currentTarget.addEventListener('pointerup', onUp)
+    e.currentTarget.addEventListener('pointercancel', onUp)
+  }
+
   function commitTitle() {
     const el = titleRef.current
     if (!el) return
@@ -139,6 +191,19 @@ return (
           onPointerDown={(e) => { e.stopPropagation(); onSelect(env.id) }}
           onDoubleClick={(e) => { e.preventDefault(); e.stopPropagation() }}
         />
+      )}
+
+      {selected && (
+        <div className="envelope-resize">
+          <div className="resize-nw" onPointerDown={(e) => startResize(e, 'nw')} />
+          <div className="resize-ne" onPointerDown={(e) => startResize(e, 'ne')} />
+          <div className="resize-sw" onPointerDown={(e) => startResize(e, 'sw')} />
+          <div className="resize-se" onPointerDown={(e) => startResize(e, 'se')} />
+          <div className="resize-n" onPointerDown={(e) => startResize(e, 'n')} />
+          <div className="resize-s" onPointerDown={(e) => startResize(e, 's')} />
+          <div className="resize-e" onPointerDown={(e) => startResize(e, 'e')} />
+          <div className="resize-w" onPointerDown={(e) => startResize(e, 'w')} />
+        </div>
       )}
     </div>
   )

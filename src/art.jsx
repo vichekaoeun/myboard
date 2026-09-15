@@ -90,6 +90,27 @@ export function PushPin({ color, size = 34 }) {
   )
 }
 
+export function PaperClip({ size = 42 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 42 42" aria-hidden="true">
+      <path d="M27.8 12.5 16 24.3a5.2 5.2 0 0 0 7.4 7.4l10-10a8.2 8.2 0 0 0-11.6-11.6L10.5 21.4a11.2 11.2 0 0 0 15.8 15.8l8.2-8.2" fill="none" stroke="#6b7280" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="m27.8 12.5-11.2 11.2a3.1 3.1 0 0 0 4.4 4.4l9.5-9.5" fill="none" stroke="#cbd5e1" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function CassetteIcon({ size = 22 }) {
+  return (
+    <svg width={size} height={size * 0.72} viewBox="0 0 44 32" aria-hidden="true">
+      <rect x="2" y="2" width="40" height="28" rx="3" fill="#d8b07a" stroke="#5b3e23" strokeWidth="2" />
+      <rect x="7" y="6" width="30" height="12" rx="2" fill="#2c2925" />
+      <circle cx="14" cy="12" r="3" fill="#e8c38e" />
+      <circle cx="30" cy="12" r="3" fill="#e8c38e" />
+      <path d="M12 24h20" stroke="#5b3e23" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 // A note laid flat with its own pin, seen from above (used inside envelopes fan)
 export function EnvelopeFlapOpen() {
   return (
