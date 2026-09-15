@@ -1,6 +1,6 @@
 // ---- Persistence / state store for My Board -------------------------------
 
-import { getSupabase, hasSupabase, BOARD_ROW_ID } from './supabase.js'
+import { getSupabase, hasSupabase } from './supabase.js'
 
 const DB_NAME = 'myboard'
 const DB_STORE = 'state'
@@ -34,6 +34,12 @@ let snapshot = null
 let listeners = new Set()
 const history = []
 const redo = []
+
+// Which board this browser is currently editing. The guest board uses the
+// original key; each signed-in account gets its own namespaced local cache so
+// two people on the same device never see each other's notes.
+let storageKey = DB_KEY
+let currentUserId = null
 
 export const NOTE_COLORS = {
   white: '#fdfaf1',
@@ -83,12 +89,12 @@ function openDB() {
   })
 }
 
-async function loadFromDB() {
+async function loadFromDB(key = storageKey) {
   try {
     if (!db) db = await openDB()
     const raw = await new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readonly')
-      const r = tx.objectStore(DB_STORE).get(DB_KEY)
+      const r = tx.objectStore(DB_STORE).get(key)
       r.onsuccess = () => resolve(r.result)
       r.onerror = () => reject(r.error)
     })
@@ -97,7 +103,7 @@ async function loadFromDB() {
   } catch (e) {
     console.warn('IndexedDB load failed', e)
   }
-  const ls = localStorage.getItem(DB_KEY)
+  const ls = localStorage.getItem(key)
   if (ls) {
     try {
       const v = JSON.parse(ls)
@@ -107,8 +113,7 @@ async function loadFromDB() {
   return null
 }
 
-export async function initStore() {
-  const saved = await loadFromDB()
+function hydrate(saved) {
   const base = defaultState()
   const merged = saved
     ? {
@@ -128,7 +133,7 @@ export async function initStore() {
   merged.notes = merged.notes.map((n, i) => ({
     id: n.id || uid() + i,
     x: isFinite(n.x) ? n.x : 0, y: isFinite(n.y) ? n.y : 0,
-    w: n.w || 250, h: n.h || 300,
+    w: n.w || 250, h: n.h || 300, sh: n.sh || n.h || 300,
     color: n.color || 'white', text: n.text || '',
     attachments: Array.isArray(n.attachments) ? n.attachments : [],
     rotation: n.rotation ?? 0, groupId: null,
@@ -180,9 +185,74 @@ export async function initStore() {
   merged.links = (merged.links || [])
     .filter((l) => l && noteIdSet.has(l.from) && noteIdSet.has(l.to) && l.from !== l.to)
     .map((l, i) => ({ id: l.id || uid() + i, from: l.from, to: l.to }))
+  return merged
+}
+
+// Point the store at a local cache key, load it, and reset the undo stacks.
+async function applyKey(key) {
+  storageKey = key
+  const saved = await loadFromDB(key)
+  const merged = hydrate(saved)
   state = merged
   snapshot = merged
-  return merged
+  history.length = 0
+  redo.length = 0
+  emit()
+  return { fresh: !saved }
+}
+
+export async function initStore() {
+  // Guest / local-only board. Signed-in accounts replace this via loadBoard().
+  return applyKey(DB_KEY)
+}
+
+// Switch to a signed-in account's board: namespaced local cache + cloud sync.
+export async function loadBoard(userId) {
+  currentUserId = userId || null
+  const userKey = currentUserId ? `board:${currentUserId}` : DB_KEY
+  const saved = await loadFromDB(userKey)
+  let merged
+  let fresh
+  if (saved) {
+    merged = hydrate(saved)
+    fresh = false
+  } else {
+    // First sign-in on this device: adopt the pre-accounts local board (key
+    // "main") so introducing accounts never loses an existing board.
+    const legacy = currentUserId ? await loadFromDB(DB_KEY) : null
+    merged = hydrate(legacy)
+    fresh = true
+  }
+  storageKey = userKey
+  state = merged
+  snapshot = merged
+  history.length = 0
+  redo.length = 0
+  emit()
+  setCloudUser(currentUserId)
+  let remoteFresh = true
+  if (currentUserId) {
+    const hadRemote = await pullCloud()
+    remoteFresh = !hadRemote
+    if (!hadRemote) await pushNow()
+  }
+  return { fresh: fresh && remoteFresh }
+}
+
+// Leave the current board (sign-out): stop syncing and blank the canvas.
+export function resetBoard() {
+  currentUserId = null
+  setCloudUser(null)
+  storageKey = DB_KEY
+  state = defaultState()
+  snapshot = state
+  history.length = 0
+  redo.length = 0
+  emit()
+}
+
+export function getCurrentUserId() {
+  return currentUserId
 }
 
 export function getState() {
@@ -207,13 +277,13 @@ export function saveNow() {
   if (!state) return
   const payload = JSON.stringify(state)
   try {
-    localStorage.setItem(DB_KEY, payload)
+    localStorage.setItem(storageKey, payload)
   } catch (e) {
     console.warn('localStorage full, skipping cache', e)
   }
   if (db) {
     const tx = db.transaction(DB_STORE, 'readwrite')
-    tx.objectStore(DB_STORE).put(payload, DB_KEY)
+    tx.objectStore(DB_STORE).put(payload, storageKey)
   }
   scheduleCloudPush()
 }
@@ -627,26 +697,37 @@ export function exportData() {
   return JSON.stringify({ ...state, mode: 'move', selected: null }, null, 1)
 }
 
-// ---- cloud sync (Supabase, single board row) --------------------------------
+// ---- cloud sync (Supabase, one row per account) -----------------------------
 //
-// Everything is keyed off one fixed row (BOARD_ROW_ID) containing the whole
-// board as JSON. Persistence remains fully local-first (IndexedDB + localStorage)
-// and is the primary copy; Supabase mirrors it for cross-device sync.
-// When the client can't reach Supabase (no env / offline / RLS), every cloud
-// call is a silent no-op and the board is simply local-only.
+// Each signed-in account gets its own row in `boards`, keyed by the auth user
+// id. RLS (see db/init.sql) only lets a user read/write the row whose id equals
+// their auth.uid(), so accounts can never see each other's boards. Persistence
+// stays local-first (IndexedDB + localStorage, namespaced per user) and
+// Supabase mirrors it for cross-device sync. Without Supabase env the board is
+// simply local-only and no account is required.
 
 const CLOUD_PUSH_MS = 800
-const CLOUD_NONCE = 'board-id' // mirrors BOARD-side fingerprint of this device
 let cloudTimer = null
-let cloudSkipping = false
-let lastCloudPayload = ''
-
 let cloudPushBusy = false
 let cloudChannel = null
 let cloudSubReady = false
+let cloudEnabled = false
+let boardRowId = null
+let supabaseRef = null
 
 export function hasCloud() {
   return hasSupabase()
+}
+
+// Point cloud sync at a user (or turn it off with null).
+export function setCloudUser(userId) {
+  if (!hasSupabase()) return
+  const next = userId || null
+  if (next === boardRowId) return
+  boardRowId = next
+  cloudEnabled = !!next
+  stopCloud()
+  if (next) startCloud()
 }
 
 function cloudPayload() {
@@ -662,7 +743,7 @@ function cloudPayload() {
 }
 
 export async function pushNow() {
-  if (!hasSupabase() || cloudPushBusy) return
+  if (!hasSupabase() || !cloudEnabled || !boardRowId || cloudPushBusy) return
   cloudPushBusy = true
   clearTimeout(cloudTimer)
   cloudTimer = null
@@ -671,7 +752,7 @@ export async function pushNow() {
     if (!sup) return
     await sup.from('boards').upsert(
       {
-        id: BOARD_ROW_ID,
+        id: boardRowId,
         payload: cloudPayload(),
         updated_at: new Date().toISOString(),
       },
@@ -685,7 +766,7 @@ export async function pushNow() {
 }
 
 export function pushSoon() {
-  if (!hasSupabase()) return
+  if (!hasSupabase() || !cloudEnabled || !boardRowId) return
   clearTimeout(cloudTimer)
   cloudTimer = setTimeout(pushNow, CLOUD_PUSH_MS)
 }
@@ -694,8 +775,8 @@ function scheduleCloudPush() {
   pushSoon()
 }
 
-// Apply a remote snapshot into local state — only if it is actually newer or
-// materially different, and never clobber the camera mid-gesture.
+// Apply a remote snapshot into local state — only if it is materially
+// different, and never clobber the camera mid-gesture.
 function applyRemote(rawPayload) {
   if (!rawPayload) return
   let remote
@@ -726,48 +807,48 @@ function onRow(payload) {
 }
 
 export async function stopCloud() {
-  if (cloudChannel) {
-    try {
-      await supabaseRef.channel(cloudChannel).unsubscribe()
-    } catch (e) {}
-    cloudChannel = null
-  }
   cloudSubReady = false
+  const ch = cloudChannel
+  cloudChannel = null
+  if (ch && supabaseRef) {
+    try { await supabaseRef.channel(ch).unsubscribe() } catch (e) {}
+  }
 }
 
-let supabaseRef = null
-
 export async function startCloud() {
-  if (!hasSupabase() || cloudSubReady) return
+  if (!hasSupabase() || !cloudEnabled || !boardRowId || cloudSubReady) return
   const sup = getSupabase()
   if (!sup) return
   supabaseRef = sup
-  // 1) Realtime subscription for other-device changes.
+  // Realtime subscription for other-device changes to this account's board.
   cloudChannel = sup
-    .channel('myboard-sync-' + BOARD_ROW_ID)
+    .channel('myboard-sync-' + boardRowId)
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'boards', filter: 'id=eq.' + BOARD_ROW_ID },
+      { event: '*', schema: 'public', table: 'boards', filter: 'id=eq.' + boardRowId },
       onRow
     )
     .subscribe()
   cloudSubReady = true
-  // 2) Pull the latest snapshot once and merge remote-vs-local.
+}
+
+// One-shot pull of this account's board. Returns true when a remote row existed.
+export async function pullCloud() {
+  if (!hasSupabase() || !cloudEnabled || !boardRowId) return false
+  const sup = getSupabase()
+  if (!sup) return false
   try {
     const { data } = await sup
       .from('boards')
       .select('payload')
-      .eq('id', BOARD_ROW_ID)
+      .eq('id', boardRowId)
       .maybeSingle()
     if (data && data.payload) {
       applyRemote(data.payload)
+      return true
     }
   } catch (e) {
-    console.warn('board sync: initial pull failed', e && e.message)
+    console.warn('board sync: pull failed', e && e.message)
   }
-}
-
-export function initCloud() {
-  if (!hasSupabase()) return
-  startCloud()
+  return false
 }

@@ -20,7 +20,11 @@ export function getSupabase() {
   if (!hasSupabase()) return null
   if (!client) {
     client = createClient(url, anon, {
-      auth: { persistSession: false, autoRefreshToken: false },
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
       realtime: { params: { eventsPerSecond: 4 } },
     })
   }
@@ -30,3 +34,49 @@ export function getSupabase() {
 // The single shared board row is addressed by a fixed 24-char id (see db/init.sql).
 // Kept exported so store.js and any caller use one constant.
 export const BOARD_ROW_ID = 'board-0000-0000-000000000001'
+
+// ---- auth ------------------------------------------------------------------
+
+export async function getSession() {
+  const sup = getSupabase()
+  if (!sup) return null
+  try {
+    const { data } = await sup.auth.getSession()
+    return data.session || null
+  } catch (e) {
+    return null
+  }
+}
+
+export function onAuthChange(cb) {
+  const sup = getSupabase()
+  if (!sup) return () => {}
+  const { data } = sup.auth.onAuthStateChange((_event, session) => cb(session))
+  return () => {
+    try { data.subscription.unsubscribe() } catch (e) {}
+  }
+}
+
+export function signInWithGoogle() {
+  const sup = getSupabase()
+  if (!sup) return Promise.resolve({ error: { message: 'Cloud is not configured' } })
+  return sup.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin },
+  })
+}
+
+export function signInWithEmail(email) {
+  const sup = getSupabase()
+  if (!sup) return Promise.resolve({ error: { message: 'Cloud is not configured' } })
+  return sup.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.origin },
+  })
+}
+
+export function signOut() {
+  const sup = getSupabase()
+  if (!sup) return Promise.resolve()
+  return sup.auth.signOut()
+}

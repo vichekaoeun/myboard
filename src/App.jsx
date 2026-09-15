@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import Board from './Board.jsx'
+import { AuthGate } from './Auth.jsx'
 import { Camera } from './camera.js'
 import { fanPoses } from './Envelope.jsx'
 import { CassetteIcon, PaperClip } from './art.jsx'
 import {
   CopyIcon, DownloadIcon, EnvelopeIcon, FileIcon, FitIcon, HelpIcon,
-  LinkIcon, MoveIcon, NoteIcon, PinIcon, RedoIcon, SearchIcon, UndoIcon, UploadIcon,
+  LinkIcon, MoveIcon, NoteIcon, PinIcon, RedoIcon, SearchIcon, SignOutIcon, UndoIcon, UploadIcon,
   ZoomInIcon, ZoomOutIcon,
 } from './icons.jsx'
 import * as store from './store.js'
+import { getSession, hasSupabase, onAuthChange, signInWithEmail, signInWithGoogle, signOut } from './supabase.js'
 
 const TOOLS = [
   { id: 'move', label: 'Move', icon: MoveIcon },
@@ -46,8 +48,53 @@ export default function App() {
   const [locationEditor, setLocationEditor] = useState(null)
   const [musicEditor, setMusicEditor] = useState(null)
 
+  const cloud = hasSupabase()
+  const [session, setSession] = useState(null)
+  const [authChecked, setAuthChecked] = useState(!cloud)
+  const [boardReady, setBoardReady] = useState(!cloud)
+  const loadedUserRef = useRef(null)
+
+  // Resolve auth, then load that account's own board (namespaced local cache +
+  // cloud row). No Supabase env => local-only mode, no sign-in required.
+  useEffect(() => {
+    if (!cloud) return
+    let active = true
+    const enter = async (s) => {
+      if (!s) {
+        if (!active) return
+        loadedUserRef.current = null
+        setSession(null); setBoardReady(false); setAuthChecked(true)
+        store.resetBoard()
+        return
+      }
+      if (s.user.id === loadedUserRef.current) {
+        if (active) { setSession(s); setBoardReady(true); setAuthChecked(true) }
+        return
+      }
+      loadedUserRef.current = s.user.id
+      await store.loadBoard(s.user.id)
+      if (!active) return
+      setSession(s); setBoardReady(true); setAuthChecked(true)
+    }
+    getSession().then((s) => { if (active) enter(s) })
+    const unsub = onAuthChange((s) => { enter(s) })
+    return () => { active = false; unsub() }
+  }, [cloud])
+
+  const handleGoogleSignIn = useCallback(async () => {
+    const { error } = await signInWithGoogle()
+    return error ? error.message : null
+  }, [])
+
+  const handleEmailSignIn = useCallback(async (email) => {
+    const { error } = await signInWithEmail(email)
+    return error ? error.message : null
+  }, [])
+
+  const handleSignOut = useCallback(() => { signOut() }, [])
+
   useLayoutEffect(() => {
-    if (!containerRef.current) return
+    if (!boardReady || !containerRef.current) return
     if (!cameraRef.current) cameraRef.current = new Camera(worldLayerRef.current)
     cameraRef.current.el = worldLayerRef.current
     cameraRef.current.v = { ...store.getState().view }
@@ -82,15 +129,16 @@ export default function App() {
         c.fit({ notes: st.notes, pins: st.pins, envelopes: st.envelopes, clips: st.clips, music: st.music })
       }
     }
-  }, [])
+  }, [boardReady])
 
-  // Seed a friendly first board once
+  // Seed a friendly first board once per account
   useEffect(() => {
+    if (!boardReady) return
     const s = store.getState()
     if (s.notes.length || s.envelopes.length || s.pins.length) return
-    const done = localStorage.getItem('myboard.seeded')
-    if (done) return
-    localStorage.setItem('myboard.seeded', '1')
+    const seedFlag = 'myboard.seeded:' + (session?.user?.id || 'local')
+    if (localStorage.getItem(seedFlag)) return
+    localStorage.setItem(seedFlag, '1')
     const welcome = store.addNote(-430, -150, '<p>Hi, welcome to your board!</p><p>Double-click anywhere (or hit <b>Note</b> above) to drop new notes.</p>', 'white')
     store.addNote(-80, 40, '<p>Drag the <b>red pin</b> up top to move this note.</p><p>Grab the bottom-right corner to resize it.</p><p>Select me to see formatting buttons below.</p>', 'yellow')
     const envelopeNote = store.addNote(120, -260, '<p>Drag this note into the envelope below to collect it with your other letters.</p>', 'blue')
@@ -104,7 +152,7 @@ export default function App() {
       const st = store.getState()
       cameraRef.current?.fit({ notes: st.notes, pins: st.pins, envelopes: st.envelopes, clips: st.clips, music: st.music })
     })
-  }, [])
+  }, [boardReady, session])
 
   // Auto-dismiss the load hint after a few seconds
   useEffect(() => {
@@ -546,6 +594,16 @@ export default function App() {
 
   // obey no-emoji-ish default but these are handy: keep simple text icons above
 
+  if (cloud && !authChecked) {
+    return <div className="auth-splash" aria-busy="true" />
+  }
+  if (cloud && !session) {
+    return <AuthGate onGoogle={handleGoogleSignIn} onEmail={handleEmailSignIn} />
+  }
+  if (!boardReady) {
+    return <div className="auth-splash" aria-busy="true" />
+  }
+
   return (
     <div className="app">
       <Board
@@ -661,6 +719,14 @@ export default function App() {
             <input type="file" accept="application/json" style={{ display: 'none' }} onChange={onImportFile} />
           </label>
         </div>
+
+        {cloud && session && (
+          <div className="tb-user" title={session.user.email || 'Signed in'}>
+            <span className="tb-user-dot" aria-hidden="true" />
+            <span className="tb-user-email">{session.user.email || 'Signed in'}</span>
+            <button className="icon-btn" onClick={handleSignOut} title="Sign out"><SignOutIcon size={15} /></button>
+          </div>
+        )}
       </div>
 
       {showHint && <div className="tb-hint">wheel = pan · ctrl+wheel = zoom · drag by a pin to move</div>}
