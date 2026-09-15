@@ -20,7 +20,7 @@ binding = "DB"
 database_name = "myboard"
 # Replace with the id printed by `wrangler d1 create myboard`. Local dev works
 # with this placeholder because wrangler keeps a local SQLite copy.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "a30e7376-a084-4aa3-9bed-af5a7ec6d841"
 
 [[durable_objects.bindings]]
 name = "ROOM"
@@ -34,4 +34,4 @@ new_sqlite_classes = ["Room"]
 APP_NAME = "My Board"
 # Public origin used to build magic-link and OAuth callback URLs.
 # Override per environment; must match what you deploy to.
-PUBLIC_BASE_URL = "http://localhost:8787"
+PUBLIC_BASE_URL = "https://myboard.oeunvicheka95.workers.dev"
