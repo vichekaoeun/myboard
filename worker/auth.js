@@ -174,6 +174,8 @@ export async function googleCallback(request, env) {
     }),
   })
   if (!tokenRes.ok) {
+    const detail = await tokenRes.text().catch(() => '')
+    console.error('google token exchange failed', tokenRes.status, detail.slice(0, 300))
     return new Response(null, { status: 302, headers: { Location: `${base}/?auth=error`, 'Set-Cookie': clearState } })
   }
   const tokens = await tokenRes.json()
@@ -181,6 +183,8 @@ export async function googleCallback(request, env) {
     headers: { Authorization: `Bearer ${tokens.access_token}` },
   })
   if (!infoRes.ok) {
+    const detail = await infoRes.text().catch(() => '')
+    console.error('google userinfo failed', infoRes.status, detail.slice(0, 300))
     return new Response(null, { status: 302, headers: { Location: `${base}/?auth=error`, 'Set-Cookie': clearState } })
   }
   const info = await infoRes.json()

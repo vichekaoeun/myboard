@@ -10,10 +10,13 @@ main = "worker/index.js"
 compatibility_date = "2025-09-01"
 
 # Static SPA: everything not matched by /api/* falls through to the built assets.
+# run_worker_first ensures /api/* always reaches the Worker — otherwise the SPA
+# fallback intercepts browser navigations (e.g. /api/auth/google) and serves HTML.
 [assets]
 directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
 
 [[d1_databases]]
 binding = "DB"
