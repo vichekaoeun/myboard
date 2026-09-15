@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { GoogleIcon } from './icons.jsx'
+import { getAuthProviders } from './supabase.js'
 
 // Full-screen sign-in wall. Shown whenever the app is cloud-backed but the
 // visitor is not signed in, so nobody can open or edit a board.
@@ -8,13 +9,32 @@ export function AuthGate({ onGoogle, onEmail }) {
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [googleOn, setGoogleOn] = useState(null) // null = unknown (still loading)
+
+  // Only offer Google if the Supabase project actually has it enabled.
+  useEffect(() => {
+    let active = true
+    getAuthProviders().then((p) => { if (active && p) setGoogleOn(!!p.google) })
+    return () => { active = false }
+  }, [])
+
+  const friendly = (message) => {
+    if (!message) return message
+    if (/provider is not enabled/i.test(message)) {
+      return 'Google sign-in isn’t enabled for this project yet — use the email link below.'
+    }
+    if (/redirect|url/i.test(message)) {
+      return 'This site isn’t in the allowed redirect URLs yet — add it in Supabase → Authentication → URL Configuration.'
+    }
+    return message
+  }
 
   async function handleGoogle() {
     setError('')
     setBusy(true)
     const message = await onGoogle()
     if (message) {
-      setError(message)
+      setError(friendly(message))
       setBusy(false)
     }
     // On success the browser is redirected to Google, so we stay "busy".
@@ -28,9 +48,11 @@ export function AuthGate({ onGoogle, onEmail }) {
     setBusy(true)
     const message = await onEmail(addr)
     setBusy(false)
-    if (message) setError(message)
+    if (message) setError(friendly(message))
     else setSent(true)
   }
+
+  const showGoogle = googleOn !== false
 
   return (
     <div className="auth-screen">
@@ -39,12 +61,15 @@ export function AuthGate({ onGoogle, onEmail }) {
         <h1 className="auth-title">My Board</h1>
         <p className="auth-sub">Sign in to open your corkboard.</p>
 
-        <button type="button" className="auth-google" onClick={handleGoogle} disabled={busy}>
-          <GoogleIcon size={18} />
-          Continue with Google
-        </button>
-
-        <div className="auth-or"><span>or</span></div>
+        {showGoogle && (
+          <>
+            <button type="button" className="auth-google" onClick={handleGoogle} disabled={busy}>
+              <GoogleIcon size={18} />
+              Continue with Google
+            </button>
+            <div className="auth-or"><span>or</span></div>
+          </>
+        )}
 
         {sent ? (
           <div className="auth-sent">

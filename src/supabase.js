@@ -80,3 +80,17 @@ export function signOut() {
   if (!sup) return Promise.resolve()
   return sup.auth.signOut()
 }
+
+// Public GoTrue settings endpoint: tells us which sign-in providers are turned
+// on, so the UI never shows a provider that would fail with "not enabled".
+export async function getAuthProviders() {
+  if (!hasSupabase()) return null
+  try {
+    const res = await fetch(`${url}/auth/v1/settings`, { headers: { apikey: anon } })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.external || null
+  } catch (e) {
+    return null
+  }
+}
