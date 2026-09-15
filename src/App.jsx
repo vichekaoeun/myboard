@@ -10,8 +10,7 @@ import {
   ZoomInIcon, ZoomOutIcon,
 } from './icons.jsx'
 import * as store from './store.js'
-import { getSession, getAuthProviders, hasSupabase, onAuthChange, signInWithEmail, signInWithGoogle, signOut } from './supabase.js'
-import { apiConfig, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, hasApi } from './api.js'
+import { apiConfig, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink } from './api.js'
 
 const TOOLS = [
   { id: 'move', label: 'Move', icon: MoveIcon },
@@ -49,15 +48,13 @@ export default function App() {
   const [locationEditor, setLocationEditor] = useState(null)
   const [musicEditor, setMusicEditor] = useState(null)
 
-  const backend = hasApi() ? 'api' : hasSupabase() ? 'supabase' : 'local'
-  const cloud = backend !== 'local'
   const [session, setSession] = useState(null) // { id, email }
-  const [authChecked, setAuthChecked] = useState(!cloud)
-  const [boardReady, setBoardReady] = useState(!cloud)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [boardReady, setBoardReady] = useState(false)
   const loadedUserRef = useRef(null)
 
-  // Resolve auth, then load that account's own board (namespaced local cache +
-  // backend row). With no backend configured the board is local-only.
+  // Resolve the session, then load that account's own board (namespaced local
+  // cache + D1 row). Sign-in is required before the board is shown.
   const enter = useCallback(async (user) => {
     if (!user) {
       loadedUserRef.current = null
@@ -75,39 +72,27 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (backend === 'local') return
     let active = true
-    if (backend === 'api') {
-      apiMe().then((res) => { if (active) enter(res && res.user ? res.user : null) })
-      return () => { active = false }
-    }
-    const toUser = (s) => (s ? { id: s.user.id, email: s.user.email } : null)
-    getSession().then((s) => { if (active) enter(toUser(s)) })
-    const unsub = onAuthChange((s) => enter(toUser(s)))
-    return () => { active = false; unsub() }
-  }, [backend, enter])
+    apiMe().then((res) => { if (active) enter(res && res.user ? res.user : null) })
+    return () => { active = false }
+  }, [enter])
 
   const handleGoogleSignIn = useCallback(async () => {
-    if (backend === 'api') { apiLoginWithGoogle(); return null }
-    const { error } = await signInWithGoogle()
-    return error ? error.message : null
-  }, [backend])
+    apiLoginWithGoogle()
+    return null
+  }, [])
 
   const handleEmailSignIn = useCallback(async (email) => {
-    if (backend === 'api') {
-      const { error } = await apiRequestMagicLink(email)
-      return error ? error.message : null
-    }
-    const { error } = await signInWithEmail(email)
+    const { error } = await apiRequestMagicLink(email)
     return error ? error.message : null
-  }, [backend])
+  }, [])
 
   const handleSignOut = useCallback(async () => {
-    if (backend === 'api') { await apiLogout(); enter(null); return }
-    signOut()
-  }, [backend, enter])
+    await apiLogout()
+    enter(null)
+  }, [enter])
 
-  const loadProviders = backend === 'api' ? apiConfig : getAuthProviders
+  const loadProviders = apiConfig
 
   useLayoutEffect(() => {
     if (!boardReady || !containerRef.current) return
@@ -610,10 +595,10 @@ export default function App() {
 
   // obey no-emoji-ish default but these are handy: keep simple text icons above
 
-  if (cloud && !authChecked) {
+  if (!authChecked) {
     return <div className="auth-splash" aria-busy="true" />
   }
-  if (cloud && !session) {
+  if (!session) {
     return <AuthGate onGoogle={handleGoogleSignIn} onEmail={handleEmailSignIn} loadProviders={loadProviders} />
   }
   if (!boardReady) {
@@ -736,7 +721,7 @@ export default function App() {
           </label>
         </div>
 
-        {cloud && session && (
+        {session && (
           <div className="tb-user" title={session.email || 'Signed in'}>
             <span className="tb-user-dot" aria-hidden="true" />
             <span className="tb-user-email">{session.email || 'Signed in'}</span>

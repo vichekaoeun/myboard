@@ -7,9 +7,6 @@ One Worker serves both the static SPA (`./dist`) and the `/api/*` backend:
 - **Auth** – signed session cookie; Google OAuth and passwordless email magic links.
 - **Static assets** – free and unlimited; only `/api/*` runs the Worker (100k req/day free).
 
-The client picks the backend via `VITE_BACKEND=cloudflare`. Unset ⇒ the app keeps
-using Supabase, so this migration can be done without breaking the live site.
-
 ## 1. Local development
 
 ```bash
@@ -17,12 +14,6 @@ npm install
 npm run db:local          # create the D1 tables in the local SQLite copy
 npm run worker:dev        # Worker + API on http://localhost:8787
 npm run dev               # Vite SPA on http://localhost:5173 (proxies /api)
-```
-
-For local dev the SPA must target the Worker backend:
-
-```bash
-VITE_BACKEND=cloudflare npm run dev
 ```
 
 `.dev.vars` (gitignored) holds local secrets — copy `.dev.vars.example`. With
@@ -80,22 +71,18 @@ The email form appears on the login screen when email is configured.
 ## 5. Deploy
 
 ```bash
-npm run deploy:cloudflare    # VITE_BACKEND=cloudflare vite build && wrangler deploy
+npm run deploy    # vite build && wrangler deploy
 ```
 
 Attach a custom domain in the Cloudflare dashboard if you want one. Optionally
-connect the repo for auto-deploys (Build command: `npm run build:cloudflare`,
+connect the repo for auto-deploys (Build command: `npm run build`,
 Deploy command: `npx wrangler deploy`).
 
-## 6. Cutting over & decommissioning Supabase
+## 6. Custom domain & data
 
-1. Deploy the Worker and sign in once to confirm your board loads.
-2. Point your domain at the Worker and stop using the Vercel deployment.
-3. Once happy, remove Supabase: unset `VITE_SUPABASE_*`, delete the app code
-   paths, and delete the Supabase project.
-
-Your local board is adopted on first sign-in (`store.loadBoard`), so nothing is
-lost during the switch.
+The board lives in D1 (local-first in the browser, mirrored to D1). To move an
+existing board across origins, use **Export** on the old site and **Import** on
+the new one.
 
 ## Notes & limits
 

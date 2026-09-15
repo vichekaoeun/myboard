@@ -1,11 +1,6 @@
 // Client for the Cloudflare Worker backend (auth + board + realtime).
-// Enabled with VITE_BACKEND=cloudflare; otherwise the app stays on Supabase.
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
-
-export function hasApi() {
-  return import.meta.env.VITE_BACKEND === 'cloudflare'
-}
 
 async function req(method, path, body) {
   let res

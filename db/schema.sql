@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS login_tokens (
   created_at  INTEGER NOT NULL
 );
 
--- One board per account, stored as a JSON string (mirrors the old Supabase row).
+-- One board per account, stored as a JSON string.
 CREATE TABLE IF NOT EXISTS boards (
   user_id     TEXT PRIMARY KEY,
   payload     TEXT NOT NULL,

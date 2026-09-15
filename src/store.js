@@ -1,7 +1,6 @@
 // ---- Persistence / state store for My Board -------------------------------
 
-import { getSupabase, hasSupabase } from './supabase.js'
-import { apiGetBoard, apiOpenSocket, apiPutBoard, hasApi } from './api.js'
+import { apiGetBoard, apiOpenSocket, apiPutBoard } from './api.js'
 
 const DB_NAME = 'myboard'
 const DB_STORE = 'state'
@@ -698,32 +697,27 @@ export function exportData() {
   return JSON.stringify({ ...state, mode: 'move', selected: null }, null, 1)
 }
 
-// ---- cloud sync (one board per account) -------------------------------------
+// ---- cloud sync (Cloudflare Worker API) -------------------------------------
 //
-// Two interchangeable backends:
-//   - Supabase (default): one row per account in `boards`, RLS-scoped.
-//   - Cloudflare Worker API (VITE_BACKEND=cloudflare): D1 + a Durable Object.
-// Persistence stays local-first (IndexedDB + localStorage, namespaced per user)
-// and the backend mirrors it for cross-device sync. With neither configured the
-// board is local-only and no account is required.
+// One board per account in D1, plus a Durable Object per account that pings
+// other open devices over WebSocket when the board changes. Persistence stays
+// local-first (IndexedDB + localStorage, namespaced per user); the Worker
+// mirrors it for cross-device sync.
 
 const CLOUD_PUSH_MS = 800
 let cloudTimer = null
 let cloudPushBusy = false
-let cloudChannel = null
 let cloudSubReady = false
 let cloudEnabled = false
 let boardRowId = null
-let supabaseRef = null
 let apiSocketClose = null
 
 export function hasCloud() {
-  return hasSupabase() || hasApi()
+  return true
 }
 
 // Point cloud sync at a user (or turn it off with null).
 export function setCloudUser(userId) {
-  if (!hasSupabase() && !hasApi()) return
   const next = userId || null
   if (next === boardRowId) return
   boardRowId = next
@@ -750,24 +744,8 @@ export async function pushNow() {
   clearTimeout(cloudTimer)
   cloudTimer = null
   try {
-    if (hasApi()) {
-      const res = await apiPutBoard(cloudPayload())
-      if (res && res.error) console.warn('board sync: push failed', res.error.message)
-      return
-    }
-    if (!hasSupabase()) return
-    const sup = getSupabase()
-    if (!sup) return
-    await sup.from('boards').upsert(
-      {
-        id: boardRowId,
-        payload: cloudPayload(),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'id' }
-    )
-  } catch (e) {
-    console.warn('board sync: push failed', e && e.message)
+    const res = await apiPutBoard(cloudPayload())
+    if (res && res.error) console.warn('board sync: push failed', res.error.message)
   } finally {
     cloudPushBusy = false
   }
@@ -808,19 +786,8 @@ function applyRemote(rawPayload) {
   }))
 }
 
-function onRow(payload) {
-  const row = payload && payload.new
-  if (!row || !row.payload) return
-  applyRemote(row.payload)
-}
-
 export async function stopCloud() {
   cloudSubReady = false
-  const ch = cloudChannel
-  cloudChannel = null
-  if (ch && supabaseRef) {
-    try { await supabaseRef.channel(ch).unsubscribe() } catch (e) {}
-  }
   if (apiSocketClose) {
     try { apiSocketClose() } catch (e) {}
     apiSocketClose = null
@@ -829,57 +796,22 @@ export async function stopCloud() {
 
 export async function startCloud() {
   if (!cloudEnabled || !boardRowId || cloudSubReady) return
-  if (hasApi()) {
-    // Realtime: the Worker pings us, and we re-pull this account's board.
-    apiSocketClose = apiOpenSocket(() => { pullCloud() })
-    cloudSubReady = true
-    return
-  }
-  if (!hasSupabase()) return
-  const sup = getSupabase()
-  if (!sup) return
-  supabaseRef = sup
-  cloudChannel = sup
-    .channel('myboard-sync-' + boardRowId)
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'boards', filter: 'id=eq.' + boardRowId },
-      onRow
-    )
-    .subscribe()
+  // Realtime: the Worker pings us, and we re-pull this account's board.
+  apiSocketClose = apiOpenSocket(() => { pullCloud() })
   cloudSubReady = true
 }
 
 // One-shot pull of this account's board. Returns true when a remote board existed.
 export async function pullCloud() {
   if (!cloudEnabled || !boardRowId) return false
-  if (hasApi()) {
-    const res = await apiGetBoard()
-    if (res && res.error) {
-      console.warn('board sync: pull failed', res.error.message)
-      return false
-    }
-    if (res && res.payload) {
-      applyRemote(res.payload)
-      return true
-    }
+  const res = await apiGetBoard()
+  if (res && res.error) {
+    console.warn('board sync: pull failed', res.error.message)
     return false
   }
-  if (!hasSupabase()) return false
-  const sup = getSupabase()
-  if (!sup) return false
-  try {
-    const { data } = await sup
-      .from('boards')
-      .select('payload')
-      .eq('id', boardRowId)
-      .maybeSingle()
-    if (data && data.payload) {
-      applyRemote(data.payload)
-      return true
-    }
-  } catch (e) {
-    console.warn('board sync: pull failed', e && e.message)
+  if (res && res.payload) {
+    applyRemote(res.payload)
+    return true
   }
   return false
 }
