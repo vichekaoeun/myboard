@@ -165,6 +165,16 @@ export function LinkIcon(props) {
   )
 }
 
+export function NewspaperIcon(props) {
+  return (
+    <Svg {...props}>
+      <path d="M4 5h13v13a1 1 0 0 0 1 1H6a2 2 0 0 1-2-2z" />
+      <path d="M17 8h2a1 1 0 0 1 1 1v8a2 2 0 0 1-2 2" />
+      <path d="M7 8.5h7M7 11.5h7M7 14.5h4" />
+    </Svg>
+  )
+}
+
 export function SignOutIcon(props) {
   return (
     <Svg {...props}>

@@ -178,6 +178,141 @@ body {
 }
 .clip-selected { outline: 2px dashed rgba(40, 30, 18, 0.6); outline-offset: 5px; }
 
+/* ---------------- saved link cards (newspaper clipping) ---------------- */
+
+.link-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  padding: 15px 16px 13px;
+  color: #241f18;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 32%),
+    #f4efe1;
+  border: 1px solid rgba(90, 78, 58, 0.28);
+  border-radius: 1px;
+  box-shadow:
+    0 1px 1px rgba(40, 25, 10, 0.16),
+    0 3px 7px rgba(40, 25, 10, 0.18),
+    0 10px 24px rgba(30, 18, 6, 0.16);
+  transition: box-shadow 0.2s ease;
+}
+.link-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 7px;
+  min-height: 0;
+  overflow: hidden;
+}
+.link-card:active { cursor: grabbing; }
+.link-card:hover {
+  box-shadow:
+    0 1px 2px rgba(40, 25, 10, 0.2),
+    0 5px 14px rgba(40, 25, 10, 0.22),
+    0 14px 30px rgba(30, 18, 6, 0.18);
+}
+.link-card-selected { outline: 2px dashed rgba(232, 163, 61, 0.9); outline-offset: 4px; }
+
+/* torn top edge */
+.link-card::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 0;
+  right: 0;
+  height: 7px;
+  background: #f4efe1;
+  -webkit-mask: repeating-linear-gradient(100deg, #000 0 5px, transparent 5px 9px);
+  mask: repeating-linear-gradient(100deg, #000 0 5px, transparent 5px 9px);
+  pointer-events: none;
+}
+
+/* strip of tape holding it to the cork */
+.link-card-tape {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  width: 92px;
+  height: 24px;
+  margin-left: -46px;
+  background: linear-gradient(180deg, rgba(255, 250, 225, 0.55), rgba(230, 216, 175, 0.42));
+  border-left: 1px solid rgba(255, 255, 255, 0.4);
+  border-right: 1px solid rgba(180, 165, 130, 0.35);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  transform: rotate(-1.5deg);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.link-card-masthead { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.link-card-favicon { width: 14px; height: 14px; border-radius: 2px; object-fit: contain; flex: none; }
+.link-card-site {
+  font: 700 10px/1 'Inter', system-ui, sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9c5a34;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-card-rule {
+  height: 0;
+  border-top: 1px solid rgba(90, 78, 58, 0.45);
+  box-shadow: 0 2px 0 -1px rgba(90, 78, 58, 0.22);
+}
+.link-card-headline {
+  font-family: 'EB Garamond', Georgia, 'Times New Roman', serif;
+  font-weight: 700;
+  font-size: 21px;
+  line-height: 1.12;
+  color: #201b14;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.link-card-photo {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 56px;
+  overflow: hidden;
+  border: 1px solid rgba(70, 60, 45, 0.35);
+  background: #ddd5c4;
+  filter: grayscale(0.12) sepia(0.12) contrast(1.02);
+}
+.link-card-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.link-card-desc {
+  font: 400 12.5px/1.4 'EB Garamond', Georgia, serif;
+  color: #4b4235;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.link-card-foot { margin-top: auto; display: flex; justify-content: flex-end; }
+.link-card-read {
+  font: 700 11px/1 'Inter', system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  color: #9c5a34;
+}
+
+.link-card-resize .resize-se::after,
+.link-card-resize .resize-sw::after,
+.link-card-resize .resize-ne::after,
+.link-card-resize .resize-nw::after {
+  border-color: rgba(120, 80, 45, 0.65);
+}
+.link-card-resize .resize-e::after,
+.link-card-resize .resize-w::after,
+.link-card-resize .resize-s::after,
+.link-card-resize .resize-n::after {
+  border-color: rgba(120, 80, 45, 0.45);
+}
+
 /* ---------------- cassette / music ---------------- */
 
 .music-item {
@@ -560,7 +695,8 @@ body {
 .note-resize,
 .clip-resize,
 .music-resize,
-.envelope-resize {
+.envelope-resize,
+.link-card-resize {
   position: absolute;
   inset: 0;
   z-index: 7;
@@ -575,14 +711,17 @@ body {
 .music-item:hover .music-resize,
 .music-selected .music-resize,
 .envelope:hover .envelope-resize,
-.envelope-selected .envelope-resize {
+.envelope-selected .envelope-resize,
+.link-card:hover .link-card-resize,
+.link-card-selected .link-card-resize {
   opacity: 1;
 }
 
 .note-resize > div,
 .clip-resize > div,
 .music-resize > div,
-.envelope-resize > div {
+.envelope-resize > div,
+.link-card-resize > div {
   position: absolute;
   pointer-events: auto;
 }

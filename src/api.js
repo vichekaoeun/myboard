@@ -48,6 +48,10 @@ export function apiPutBoard(payload) {
   return req('PUT', '/api/board', { payload })
 }
 
+export function apiLinkPreview(url) {
+  return req('GET', `/api/link-preview?url=${encodeURIComponent(url)}`)
+}
+
 // Live updates: the Worker pings "changed" whenever this account's board is
 // saved elsewhere, and we simply re-pull. Auto-reconnects while mounted.
 export function apiOpenSocket(onChange) {

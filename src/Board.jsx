@@ -3,14 +3,15 @@ import NoteView from './Note.jsx'
 import PinView from './PinView.jsx'
 import ClipView from './ClipView.jsx'
 import MusicView from './MusicView.jsx'
+import CardView from './CardView.jsx'
 import EnvelopeView, { fanPoses } from './Envelope.jsx'
 import { ropePath } from './ropes.js'
 
 const WORLD_SIZE = 240000
 
 export default function Board({
-  containerRef, worldLayerRef, cameraRef, notes, pins, clips, music, envelopes, links = [], connections = null, linkFrom = null, selected, mode, getZoom, tick,
-  onSelect, onChange, onLiveHeight, onEnvChange, onMoveEnd, onEnvMoveEnd, onPinMoveEnd, onClipMoveEnd, onClipResizeEnd, onMusicMoveEnd, onMusicResizeEnd, onFanDrop, onDragMove,
+  containerRef, worldLayerRef, cameraRef, notes, pins, clips, music, cards = [], envelopes, links = [], connections = null, linkFrom = null, selected, mode, getZoom, tick,
+  onSelect, onChange, onLiveHeight, onEnvChange, onMoveEnd, onEnvMoveEnd, onPinMoveEnd, onClipMoveEnd, onClipResizeEnd, onMusicMoveEnd, onMusicResizeEnd, onCardMoveEnd, onCardResizeEnd, onOpenCard, onFanDrop, onDragMove,
   onAddNote, onAddPin, onAddClip, onAddEnvelope, onToggleEnvelope,
   onCtxBackground, onCtxItem, onEditLocation, onResizeLocation, onLinkClick, onOpenLink, onCtxLink, hoverEnvId,
 }) {
@@ -235,6 +236,20 @@ export default function Board({
             onSelect={onSelect}
             onMoveEnd={onMusicMoveEnd}
             onResizeEnd={onMusicResizeEnd}
+            onContextMenu={onCtxItem}
+          />
+        ))}
+
+        {cards.map((card) => (
+          <CardView
+            key={card.id}
+            item={card}
+            selected={selected === card.id}
+            getZoom={getZoom}
+            onSelect={onSelect}
+            onMoveEnd={onCardMoveEnd}
+            onResizeEnd={onCardResizeEnd}
+            onOpen={onOpenCard}
             onContextMenu={onCtxItem}
           />
         ))}

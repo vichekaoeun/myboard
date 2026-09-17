@@ -6,11 +6,11 @@ import { fanPoses } from './Envelope.jsx'
 import { CassetteIcon, PaperClip } from './art.jsx'
 import {
   CopyIcon, DownloadIcon, EnvelopeIcon, FileIcon, FitIcon, HelpIcon,
-  LinkIcon, MoveIcon, NoteIcon, PinIcon, RedoIcon, SearchIcon, SignOutIcon, UndoIcon, UploadIcon,
+  LinkIcon, MoveIcon, NewspaperIcon, NoteIcon, PinIcon, RedoIcon, SearchIcon, SignOutIcon, UndoIcon, UploadIcon,
   ZoomInIcon, ZoomOutIcon,
 } from './icons.jsx'
 import * as store from './store.js'
-import { apiConfig, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink } from './api.js'
+import { apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink } from './api.js'
 
 const TOOLS = [
   { id: 'move', label: 'Move', icon: MoveIcon },
@@ -127,7 +127,7 @@ export default function App() {
       // and never triggers the old fully-off-screen check by itself.
       const tiny = overlapW > 0 && overlapH > 0 && (overlapW < vw * 0.45 || overlapH < vh * 0.45)
       if (bbox.minX !== Infinity && (!onScreen || tiny)) {
-        c.fit({ notes: st.notes, pins: st.pins, envelopes: st.envelopes, clips: st.clips, music: st.music })
+        c.fit({ notes: st.notes, pins: st.pins, envelopes: st.envelopes, clips: st.clips, music: st.music, cards: st.cards })
       }
     }
   }, [boardReady])
@@ -154,7 +154,7 @@ export default function App() {
     // Frame & center the freshly seeded board so it fills the screen
     requestAnimationFrame(() => {
       const st = store.getState()
-      cameraRef.current?.fit({ notes: st.notes, pins: st.pins, envelopes: st.envelopes, clips: st.clips, music: st.music })
+      cameraRef.current?.fit({ notes: st.notes, pins: st.pins, envelopes: st.envelopes, clips: st.clips, music: st.music, cards: st.cards })
     })
   }, [boardReady, session])
 
@@ -352,6 +352,54 @@ export default function App() {
   }, [musicEditor])
   const handleEnvMoveEnd = useCallback((id, x, y) => store.moveEnvelope(id, x, y), [])
 
+  // ---- saved link cards -------------------------------------------------------
+
+  const handleCardMoveEnd = useCallback((id, x, y) => store.moveCard(id, x, y), [])
+  const handleCardResizeEnd = useCallback((id, w, h) => store.updateCard(id, { w, h }), [])
+  const handleOpenCard = useCallback((card) => {
+    if (card && card.url) window.open(card.url, '_blank', 'noopener')
+  }, [])
+
+  const normalizeUrl = (raw) => {
+    let url = String(raw || '').trim()
+    if (!url) return null
+    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) {
+      url = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(url) ? `mailto:${url}` : `https://${url}`
+    }
+    try {
+      const u = new URL(url)
+      if (!['http:', 'https:'].includes(u.protocol)) return null
+      return u.href
+    } catch (e) {
+      return null
+    }
+  }
+
+  const handleAddCard = useCallback(async () => {
+    const href = normalizeUrl(window.prompt('Paste a link to save as a card (https://…)'))
+    if (!href) { say('That doesn’t look like a valid link'); return }
+    say('Fetching preview…')
+    const point = cameraRef.current
+      ? cameraRef.current.worldPoint(window.innerWidth / 2, window.innerHeight / 2)
+      : { x: 0, y: 0 }
+    const res = await apiLinkPreview(href)
+    const preview = res && !res.error
+      ? res
+      : { url: href, title: '', description: '', image: '', favicon: '', siteName: '' }
+    if (res && res.error) say(res.error)
+    store.addCard(Math.round(point.x - 150), Math.round(point.y - 150), preview)
+  }, [say])
+
+  const refreshCard = useCallback(async (card) => {
+    say('Refreshing preview…')
+    const res = await apiLinkPreview(card.url)
+    if (res && res.error) { say(res.error); return }
+    store.updateCard(card.id, {
+      url: res.url, title: res.title, description: res.description,
+      image: res.image, favicon: res.favicon, siteName: res.siteName,
+    })
+  }, [say])
+
   const handleCtxBackground = useCallback((c) => setCtx({ ...c, kind: 'bg' }), [])
   const handleCtxItem = useCallback((e, item, kind) => {
     const p = cameraRef.current.worldPoint(e.clientX, e.clientY)
@@ -445,7 +493,7 @@ export default function App() {
 
   const fitView = useCallback(() => {
     const st = store.getState()
-    cameraRef.current.fit({ notes: st.notes, pins: st.pins, envelopes: st.envelopes, clips: st.clips, music: st.music })
+    cameraRef.current.fit({ notes: st.notes, pins: st.pins, envelopes: st.envelopes, clips: st.clips, music: st.music, cards: st.cards })
   }, [])
 
   // Jump to a linked note (opening its envelope first if it lives inside one)
@@ -546,6 +594,13 @@ export default function App() {
       base.push({ label: 'Delete cassette', icon: '×', run: () => store.deleteItem(ctx.item.id), danger: true })
     } else if (ctx.kind === 'link') {
       base.push({ label: 'Remove red string', icon: '✂', run: () => store.removeLink(ctx.item.id), danger: true })
+    } else if (ctx.kind === 'card') {
+      const it = ctx.item
+      base.push({ label: 'Open link', icon: '↗', run: () => handleOpenCard(it) })
+      base.push({ label: 'Copy link', icon: '⧉', run: () => { if (navigator.clipboard) navigator.clipboard.writeText(it.url); say('Link copied') } })
+      base.push({ label: 'Refresh preview', icon: '⟳', run: () => refreshCard(it) })
+      base.push({ label: 'Duplicate', icon: '❐', run: () => store.duplicateItem(it.id) })
+      base.push({ label: 'Delete card', icon: '×', run: () => store.deleteItem(it.id), danger: true })
     }
     return base.filter((a) => a.show !== false)
   })()
@@ -618,6 +673,7 @@ export default function App() {
         pins={state.pins}
         clips={state.clips}
         music={state.music}
+        cards={state.cards || []}
         envelopes={state.envelopes}
         links={state.links || []}
         connections={connections}
@@ -639,6 +695,9 @@ export default function App() {
         onClipResizeEnd={handleClipResizeEnd}
         onMusicMoveEnd={handleMusicMoveEnd}
         onMusicResizeEnd={handleMusicResizeEnd}
+        onCardMoveEnd={handleCardMoveEnd}
+        onCardResizeEnd={handleCardResizeEnd}
+        onOpenCard={handleOpenCard}
         onFanDrop={handleFanDrop}
         onDragMove={handleDragMove}
         onAddNote={handleAddNote}
@@ -710,6 +769,7 @@ export default function App() {
             <PaperClip size={18} />
             <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleClipFile} />
           </label>
+          <button className="icon-btn" onClick={handleAddCard} title="Save a link as an article card"><NewspaperIcon size={16} /></button>
           <label className="icon-btn" title="Add cassette music">
             <CassetteIcon size={20} />
             <input type="file" accept="audio/*" style={{ display: 'none' }} onChange={handleMusicFile} />
@@ -917,6 +977,7 @@ function HelpDialog({ onClose, onFit, onExport }) {
               <li>Select a note → <b>B</b>/<i>I</i>/link/image buttons appear</li>
               <li>Click a link to open it; drop/paste images in</li>
               <li>Use the <b>Link</b> tool → click two notes to tie red string</li>
+              <li>Save a link as an <b>article card</b> from the toolbar</li>
               <li>Right-click any item for colours &amp; more</li>
             </ul>
           </div>

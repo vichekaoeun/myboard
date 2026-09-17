@@ -5,15 +5,16 @@ import {
   clearSessionCookie, json,
 } from './auth.js'
 import { getBoard, putBoard, boardSocket } from './board.js'
+import { handleLinkPreview } from './preview.js'
 
 export { Room } from './room.js'
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url)
     if (url.pathname.startsWith('/api/')) {
       try {
-        return await route(request, env, url)
+        return await route(request, env, url, ctx)
       } catch (err) {
         console.error('api error', err && err.stack)
         return json({ error: 'Server error' }, 500)
@@ -24,7 +25,7 @@ export default {
   },
 }
 
-async function route(request, env, url) {
+async function route(request, env, url, ctx) {
   const path = url.pathname
   const method = request.method
 
@@ -60,6 +61,7 @@ async function route(request, env, url) {
 
   if (path === '/api/board' && method === 'GET') return getBoard(request, env, user)
   if (path === '/api/board' && method === 'PUT') return putBoard(request, env, user)
+  if (path === '/api/link-preview' && method === 'GET') return handleLinkPreview(request, env, ctx)
   if (path === '/api/ws' && method === 'GET') return boardSocket(request, env, user)
 
   return json({ error: 'Not found' }, 404)

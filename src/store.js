@@ -82,6 +82,7 @@ function defaultState() {
     pins: [],
     clips: [],
     music: [],
+    cards: [],
     envelopes: [],
     links: [],
     selected: null,
@@ -132,6 +133,7 @@ function hydrate(saved) {
         pins: saved.pins || [],
         clips: saved.clips || [],
         music: saved.music || [],
+        cards: Array.isArray(saved.cards) ? saved.cards : [],
         envelopes: saved.envelopes || [],
         links: Array.isArray(saved.links) ? saved.links : [],
         selected: null,
@@ -419,6 +421,18 @@ export function addMusic(url, x, y, title) {
   return music
 }
 
+// A saved-link "article card": a link plus its fetched Open Graph metadata.
+export function addCard(x, y, preview) {
+  const card = {
+    id: uid(), x, y, w: 300, h: 300,
+    url: preview.url, title: preview.title || '', description: preview.description || '',
+    image: preview.image || '', favicon: preview.favicon || '', siteName: preview.siteName || '',
+    rotation: Math.random() * 3 - 1.5,
+  }
+  mutate((s) => ({ ...s, cards: [...s.cards, card], selected: card.id, mode: 'move' }))
+  return card
+}
+
 export function addEnvelope(x, y) {
   const env = { id: uid(), x: x - 150, y: y - 105, w: 300, h: 210, title: 'My letters', noteIds: [], expanded: false }
   mutate((s) => ({ ...s, envelopes: [...s.envelopes, env], selected: env.id, mode: 'move' }))
@@ -511,6 +525,20 @@ export function updateMusic(id, patch) {
   mutate((s) => ({ ...s, music: s.music.map((m) => (m.id === id ? { ...m, ...patch } : m)) }))
 }
 
+export function updateCard(id, patch) {
+  mutate((s) => ({ ...s, cards: s.cards.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))
+}
+
+export function moveCard(id, x, y) {
+  mutate((s) => {
+    const rest = s.cards.filter((c) => c.id !== id)
+    const item = s.cards.find((c) => c.id === id)
+    if (!item) return s
+    const p = clampToCork(x, y, item.w, item.h)
+    return { ...s, cards: [...rest, { ...item, x: p.x, y: p.y }] }
+  })
+}
+
 export function moveMusic(id, x, y) {
   mutate((s) => {
     const rest = s.music.filter((m) => m.id !== id)
@@ -580,6 +608,7 @@ export function deleteItem(id) {
     const pins = s.pins.filter((p) => p.id !== id)
     const clips = s.clips.filter((c) => c.id !== id)
     const music = s.music.filter((m) => m.id !== id)
+    const cards = (s.cards || []).filter((c) => c.id !== id)
     const links = (s.links || []).filter((l) => l.from !== id && l.to !== id)
     const env = s.envelopes.find((e) => e.id === id)
     if (env) {
@@ -591,6 +620,7 @@ export function deleteItem(id) {
         pins,
         clips,
         music,
+        cards,
         links,
         selected: null,
       }
@@ -603,6 +633,7 @@ export function deleteItem(id) {
       pins,
       clips,
       music,
+      cards,
       links,
       envelopes: gid
         ? s.envelopes.map((e) =>
@@ -644,12 +675,17 @@ export function duplicateItem(id) {
       const copy = { ...music, id: uid(), x: music.x + 26, y: music.y + 26 }
       return { ...s, music: [...s.music, copy], selected: copy.id }
     }
+    const card = (s.cards || []).find((c) => c.id === id)
+    if (card) {
+      const copy = { ...card, id: uid(), x: card.x + 26, y: card.y + 26 }
+      return { ...s, cards: [...s.cards, copy], selected: copy.id }
+    }
     return s
   })
 }
 
 export function clearBoard() {
-  mutate((s) => ({ ...s, notes: [], pins: [], clips: [], music: [], envelopes: [], links: [], selected: null }))
+  mutate((s) => ({ ...s, notes: [], pins: [], clips: [], music: [], cards: [], envelopes: [], links: [], selected: null }))
 }
 
 export function importState(data) {
@@ -674,6 +710,7 @@ export function importState(data) {
     pins: (data.pins || []).map((p) => ({ ...p, location: p.location || null })),
     clips: (data.clips || []).map((c) => ({ ...c, w: c.w || 220, h: c.h || 180 })).filter((c) => c.url),
     music: (data.music || []).map((m) => ({ ...m, w: m.w || 320, h: m.h || 180, title: m.title || 'Untitled mixtape' })).filter((m) => m.url),
+    cards: (data.cards || []).map((c) => ({ ...c, w: c.w || 300, h: c.h || 300 })).filter((c) => c.url),
     envelopes: data.envelopes || [],
     links: Array.isArray(data.links) ? data.links : [],
   }
@@ -749,6 +786,7 @@ function cloudPayload() {
     pins: state.pins,
     clips: state.clips,
     music: state.music,
+    cards: state.cards || [],
     envelopes: state.envelopes,
     links: state.links || [],
     view: state.view,
@@ -800,6 +838,7 @@ function applyRemote(rawPayload) {
     pins: remote.pins || [],
     clips: remote.clips || [],
     music: remote.music || [],
+    cards: remote.cards || [],
     envelopes: remote.envelopes || [],
     links: remote.links || [],
     view: remote.view,
@@ -811,6 +850,7 @@ function applyRemote(rawPayload) {
     pins: remote.pins || [],
     clips: remote.clips || [],
     music: remote.music || [],
+    cards: remote.cards || [],
     envelopes: remote.envelopes || [],
     links: remote.links || [],
     view: s.view.s === undefined ? remote.view || s.view : s.view,
