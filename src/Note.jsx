@@ -2,6 +2,7 @@ import React, { memo, useEffect, useRef } from 'react'
 import { PushPin } from './art.jsx'
 import { NOTE_COLORS } from './store.js'
 import { updateRopesForNote } from './ropes.js'
+import { connText, connType } from './connections.js'
 
 function noteTitle(n) {
   const t = (n.text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
@@ -361,9 +362,10 @@ export default memo(function NoteView({
                 <>
                   <div className="nl-title">Connected from:</div>
                   <ul className="nl-list">
-                    {connections.from.map((n) => (
-                      <li key={n.id}>
-                        <button type="button" onClick={() => onOpenLink && onOpenLink(n.id)}>“{noteTitle(n)}”</button>
+                    {connections.from.map(({ note, link }) => (
+                      <li key={note.id}>
+                        <button type="button" onClick={() => onOpenLink && onOpenLink(note.id)}>“{noteTitle(note)}”</button>
+                        <span className="nl-rel"><i className="nl-dot" style={{ background: connType(link && link.type).color }} />{connText(link)}</span>
                       </li>
                     ))}
                   </ul>
@@ -373,9 +375,10 @@ export default memo(function NoteView({
                 <>
                   <div className="nl-title">Links to:</div>
                   <ul className="nl-list">
-                    {connections.to.map((n) => (
-                      <li key={n.id}>
-                        <button type="button" onClick={() => onOpenLink && onOpenLink(n.id)}>“{noteTitle(n)}”</button>
+                    {connections.to.map(({ note, link }) => (
+                      <li key={note.id}>
+                        <button type="button" onClick={() => onOpenLink && onOpenLink(note.id)}>“{noteTitle(note)}”</button>
+                        <span className="nl-rel"><i className="nl-dot" style={{ background: connType(link && link.type).color }} />{connText(link)}</span>
                       </li>
                     ))}
                   </ul>

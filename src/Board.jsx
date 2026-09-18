@@ -5,7 +5,8 @@ import ClipView from './ClipView.jsx'
 import MusicView from './MusicView.jsx'
 import CardView from './CardView.jsx'
 import EnvelopeView, { fanPoses } from './Envelope.jsx'
-import { ropePath } from './ropes.js'
+import { ropeGeometry } from './ropes.js'
+import { connType } from './connections.js'
 
 const WORLD_SIZE = 240000
 
@@ -117,8 +118,11 @@ export default function Board({
               const a = noteById.get(l.from)
               const b = noteById.get(l.to)
               if (!a || !b || a.groupId || b.groupId) return null
-              const d = ropePath(a, b)
+              const type = connType(l.type)
+              const geo = ropeGeometry(a, b)
               const fresh = !initialLinksRef.current.has(l.id)
+              const label = l.label || ''
+              const labelW = Math.min(240, 26 + label.length * 6.6)
               return (
                 <g
                   key={l.id}
@@ -126,11 +130,25 @@ export default function Board({
                   data-from={l.from}
                   data-to={l.to}
                 >
-                  <path className="rope-shadow" pathLength="1" d={d} />
-                  <path className="rope-line" pathLength="1" d={d} />
+                  <path className="rope-shadow" pathLength="1" d={geo.d} />
+                  <path
+                    className="rope-line"
+                    pathLength="1"
+                    d={geo.d}
+                    style={{ stroke: type.color, strokeDasharray: type.dashed ? '7 7' : undefined }}
+                  />
+                  {type.directed ? (
+                    <path className="rope-arrow" d={geo.arrow} style={{ fill: type.color }} />
+                  ) : null}
+                  {label ? (
+                    <g className="rope-labelwrap" transform={`translate(${geo.mid.x} ${geo.mid.y})`}>
+                      <rect className="rope-label-bg" x={-labelW / 2} y={-11} width={labelW} height={20} rx={4} />
+                      <text className="rope-label" textAnchor="middle" y={4}>{label}</text>
+                    </g>
+                  ) : null}
                   <path
                     className="rope-hit"
-                    d={d}
+                    d={geo.d}
                     onPointerDown={(e) => e.stopPropagation()}
                     onContextMenu={(e) => onCtxLink(e, l)}
                   />

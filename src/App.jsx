@@ -10,6 +10,7 @@ import {
   ZoomInIcon, ZoomOutIcon,
 } from './icons.jsx'
 import * as store from './store.js'
+import { CONNECTION_ORDER, CONNECTION_TYPES } from './connections.js'
 import { apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink } from './api.js'
 
 const TOOLS = [
@@ -44,6 +45,7 @@ export default function App() {
   const [showHint, setShowHint] = useState(true)
   const [linkFrom, setLinkFrom] = useState(null)
   const linkFromRef = useRef(null)
+  const [linkType, setLinkType] = useState('related')
   const [flip, setFlip] = useState(0)
   const [locationEditor, setLocationEditor] = useState(null)
   const [musicEditor, setMusicEditor] = useState(null)
@@ -199,11 +201,12 @@ export default function App() {
       say('Link cancelled')
       return
     }
-    const link = store.addLink(from, id)
+    const link = store.addLink(from, id, linkType)
     linkFromRef.current = null
     setLinkFrom(null)
-    say(link ? 'Tied with red string' : 'Those notes are already linked')
-  }, [say])
+    const t = CONNECTION_TYPES[linkType] || CONNECTION_TYPES.related
+    say(link ? `Tied a “${t.label}” string` : 'Those notes are already linked')
+  }, [say, linkType])
 
   const envForNote = useMemo(() => {
     const m = {}
@@ -211,15 +214,20 @@ export default function App() {
     return m
   }, [state.envelopes])
 
-  // Red-string connections for the selected note (backlinks + outgoing)
+  // Red-string connections for the selected note (backlinks + outgoing),
+  // each carrying its link so the panel can show the relationship type/label.
   const connections = useMemo(() => {
     const id = state.selected
     if (!id) return null
     const links = state.links || []
     const byId = new Map(state.notes.map((n) => [n.id, n]))
     const uniq = (arr) => [...new Set(arr)]
-    const from = uniq(links.filter((l) => l.to === id).map((l) => l.from)).map((nid) => byId.get(nid)).filter(Boolean)
-    const to = uniq(links.filter((l) => l.from === id).map((l) => l.to)).map((nid) => byId.get(nid)).filter(Boolean)
+    const pairs = (match, pick) => uniq(links.filter(match).map(pick)).map((nid) => ({
+      note: byId.get(nid),
+      link: links.find((l) => match(l) && pick(l) === nid),
+    })).filter((x) => x.note)
+    const from = pairs((l) => l.to === id, (l) => l.from)
+    const to = pairs((l) => l.from === id, (l) => l.to)
     if (!from.length && !to.length) return null
     return { from, to }
   }, [state.selected, state.links, state.notes])
@@ -593,7 +601,13 @@ export default function App() {
       base.push({ label: 'Duplicate', icon: '❐', run: () => store.duplicateItem(ctx.item.id) })
       base.push({ label: 'Delete cassette', icon: '×', run: () => store.deleteItem(ctx.item.id), danger: true })
     } else if (ctx.kind === 'link') {
-      base.push({ label: 'Remove red string', icon: '✂', run: () => store.removeLink(ctx.item.id), danger: true })
+      const it = ctx.item
+      base.push({ label: 'Edit label…', icon: '✎', run: () => {
+        const v = window.prompt('Label for this connection', it.label || '')
+        if (v != null) store.updateLink(it.id, { label: v.trim() })
+      } })
+      base.push({ label: 'Reverse direction', icon: '⇄', run: () => store.reverseLink(it.id) })
+      base.push({ label: 'Remove string', icon: '✂', run: () => store.removeLink(it.id), danger: true })
     } else if (ctx.kind === 'card') {
       const it = ctx.item
       base.push({ label: 'Open link', icon: '↗', run: () => handleOpenCard(it) })
@@ -732,6 +746,27 @@ export default function App() {
             </button>
           ))}
         </div>
+
+        {state.mode === 'link' && (
+          <div className="tb-links" role="group" aria-label="Connection type">
+            {CONNECTION_ORDER.map((tid) => {
+              const t = CONNECTION_TYPES[tid]
+              return (
+                <button
+                  key={tid}
+                  type="button"
+                  className={`tb-link-type ${linkType === tid ? 'on' : ''}`}
+                  style={{ '--dot': t.color }}
+                  onClick={() => setLinkType(tid)}
+                  title={`${t.label} connections`}
+                >
+                  <span className="tb-link-dot" style={{ background: t.color }} />
+                  <span className="tb-link-name">{t.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         <div className="tb-search">
           <span className="tb-search-icon"><SearchIcon size={14} /></span>
@@ -911,6 +946,23 @@ export default function App() {
               ))}
             </div>
           )}
+          {ctx.kind === 'link' && (
+            <div className="ctx-colors" title="Connection type">
+              {CONNECTION_ORDER.map((tid) => {
+                const t = CONNECTION_TYPES[tid]
+                return (
+                  <button
+                    key={tid}
+                    className={`swatch ${(ctx.item.type || 'related') === tid ? 'on' : ''}`}
+                    style={{ background: t.color }}
+                    title={t.label}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => { e.stopPropagation(); store.updateLink(ctx.item.id, { type: tid }); setCtx(null) }}
+                  />
+                )
+              })}
+            </div>
+          )}
           <div className="ctxmenu-items">
             {(ctxActions.length
               ? ctxActions
@@ -976,7 +1028,7 @@ function HelpDialog({ onClose, onFit, onExport }) {
               <li>Drag the <b>bottom-right corner</b> to resize</li>
               <li>Select a note → <b>B</b>/<i>I</i>/link/image buttons appear</li>
               <li>Click a link to open it; drop/paste images in</li>
-              <li>Use the <b>Link</b> tool → click two notes to tie red string</li>
+              <li>Use the <b>Link</b> tool → pick a type, click two notes to tie a string</li>
               <li>Save a link as an <b>article card</b> from the toolbar</li>
               <li>Right-click any item for colours &amp; more</li>
             </ul>

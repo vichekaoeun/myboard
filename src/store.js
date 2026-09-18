@@ -195,7 +195,7 @@ function hydrate(saved) {
   const noteIdSet = new Set(merged.notes.map((n) => n.id))
   merged.links = (merged.links || [])
     .filter((l) => l && noteIdSet.has(l.from) && noteIdSet.has(l.to) && l.from !== l.to)
-    .map((l, i) => ({ id: l.id || uid() + i, from: l.from, to: l.to }))
+    .map((l, i) => ({ id: l.id || uid() + i, from: l.from, to: l.to, type: l.type || 'related', label: l.label || '' }))
   return merged
 }
 
@@ -583,7 +583,7 @@ export function toggleEnvelope(id) {
 
 // Red-string links between notes (detective-corkboard style). Stored directed
 // (from → to) so we can show backlinks, but rendered as one undirected rope.
-export function addLink(from, to) {
+export function addLink(from, to, type = 'related') {
   if (!from || !to || from === to) return null
   let created = null
   mutate((s) => {
@@ -592,7 +592,7 @@ export function addLink(from, to) {
       (l) => (l.from === from && l.to === to) || (l.from === to && l.to === from)
     )
     if (dupe) return s
-    created = { id: uid(), from, to }
+    created = { id: uid(), from, to, type, label: '' }
     return { ...s, links: [...links, created] }
   })
   return created
@@ -600,6 +600,20 @@ export function addLink(from, to) {
 
 export function removeLink(id) {
   mutate((s) => ({ ...s, links: (s.links || []).filter((l) => l.id !== id) }))
+}
+
+export function updateLink(id, patch) {
+  mutate((s) => ({
+    ...s,
+    links: (s.links || []).map((l) => (l.id === id ? { ...l, ...patch } : l)),
+  }))
+}
+
+export function reverseLink(id) {
+  mutate((s) => ({
+    ...s,
+    links: (s.links || []).map((l) => (l.id === id ? { ...l, from: l.to, to: l.from } : l)),
+  }))
 }
 
 export function deleteItem(id) {
@@ -741,7 +755,7 @@ export function importState(data) {
   const importedIds = new Set(s.notes.map((n) => n.id))
   s.links = s.links
     .filter((l) => l && importedIds.has(l.from) && importedIds.has(l.to) && l.from !== l.to)
-    .map((l, i) => ({ id: l.id || uid() + i, from: l.from, to: l.to }))
+    .map((l, i) => ({ id: l.id || uid() + i, from: l.from, to: l.to, type: l.type || 'related', label: l.label || '' }))
   state = s
   emit()
   saveNow()
