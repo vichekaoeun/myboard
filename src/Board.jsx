@@ -164,7 +164,7 @@ export default function Board({
                       <path className="rope-arrow" d={geo.arrow} style={{ fill: type.color }} />
                     ) : null}
                     {label ? (
-                      <g className="rope-labelwrap" transform={`translate(${geo.mid.x} ${geo.mid.y})`}>
+                      <g className="rope-labelwrap" transform={`translate(${geo.label.x} ${geo.label.y})`}>
                         <rect className="rope-label-bg" x={-labelW / 2} y={-11} width={labelW} height={20} rx={4} />
                         <text className="rope-label" textAnchor="middle" y={4}>{label}</text>
                       </g>

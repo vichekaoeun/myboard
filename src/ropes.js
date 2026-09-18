@@ -19,29 +19,33 @@ export function ropeGeometry(a, b) {
   const cy = (ay + by) / 2 + sag
   const d = `M ${ax} ${ay} Q ${cx} ${cy} ${bx} ${by}`
 
-  // Quadratic midpoint (t = 0.5).
+  // Quadratic midpoint (t = 0.5) and the label sits just above it.
   const mx = (ax + 2 * cx + bx) / 4
   const my = (ay + 2 * cy + by) / 4
+  const label = { x: mx, y: my - 16 }
 
-  // Arrowhead at the target end; tangent at t=1 is P2 - C.
-  const dx = bx - cx
-  const dy = by - cy
+  // Direction arrowhead at the midpoint of the string (over the cork, never on
+  // a note). Direction of travel at t=0.5 is the chord P2 - P0.
+  const dx = bx - ax
+  const dy = by - ay
   const len = Math.hypot(dx, dy) || 1
   const ux = dx / len
   const uy = dy / len
   const px = -uy
   const py = ux
-  const size = 12
+  const half = 8
   const wing = 6
-  const tipX = bx - ux * 9
-  const tipY = by - uy * 9
-  const b1x = tipX - ux * size + px * wing
-  const b1y = tipY - uy * size + py * wing
-  const b2x = tipX - ux * size - px * wing
-  const b2y = tipY - uy * size - py * wing
+  const tipX = mx + ux * half
+  const tipY = my + uy * half
+  const baseX = mx - ux * half
+  const baseY = my - uy * half
+  const b1x = baseX + px * wing
+  const b1y = baseY + py * wing
+  const b2x = baseX - px * wing
+  const b2y = baseY - py * wing
   const arrow = `M ${tipX} ${tipY} L ${b1x} ${b1y} L ${b2x} ${b2y} Z`
 
-  return { d, arrow, mid: { x: mx, y: my } }
+  return { d, arrow, mid: { x: mx, y: my }, label }
 }
 
 export function ropePath(a, b) {
@@ -73,6 +77,6 @@ export function updateRopesForNote(id, x, y, w) {
     const arrow = g.querySelector('path.rope-arrow')
     if (arrow) arrow.setAttribute('d', geo.arrow)
     const label = g.querySelector('.rope-labelwrap')
-    if (label) label.setAttribute('transform', `translate(${geo.mid.x} ${geo.mid.y})`)
+    if (label) label.setAttribute('transform', `translate(${geo.label.x} ${geo.label.y})`)
   })
 }
