@@ -545,6 +545,13 @@ body {
   position: absolute;
   overflow: visible;
   pointer-events: none;
+  z-index: 1;
+}
+/* Arrowheads + labels sit above the notes; the strings stay behind them. */
+.rope-marks {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
   z-index: 20;
 }
 .rope-shadow {

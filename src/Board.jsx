@@ -23,6 +23,15 @@ export default function Board({
   const initialLinksRef = useRef(null)
   if (initialLinksRef.current === null) initialLinksRef.current = new Set(links.map((l) => l.id))
 
+  // Precompute rope geometry once per render for both layers (strings behind
+  // notes; arrowheads + labels in front so they stay visible).
+  const ropeItems = links.map((l) => {
+    const a = noteById.get(l.from)
+    const b = noteById.get(l.to)
+    if (!a || !b || a.groupId || b.groupId) return null
+    return { l, type: connType(l.type), geo: ropeGeometry(a, b), fresh: !initialLinksRef.current.has(l.id) }
+  }).filter(Boolean)
+
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -108,22 +117,15 @@ export default function Board({
         <div className="cork-plane" style={{ left: -WORLD_SIZE / 2, top: -WORLD_SIZE / 2, width: WORLD_SIZE, height: WORLD_SIZE }} />
 
       <div className="world">
-        {links.length > 0 && (
-          <svg
-            className="ropes"
-            viewBox={`${-WORLD_SIZE / 2} ${-WORLD_SIZE / 2} ${WORLD_SIZE} ${WORLD_SIZE}`}
-            style={{ left: -WORLD_SIZE / 2, top: -WORLD_SIZE / 2, width: WORLD_SIZE, height: WORLD_SIZE }}
-          >
-            {links.map((l) => {
-              const a = noteById.get(l.from)
-              const b = noteById.get(l.to)
-              if (!a || !b || a.groupId || b.groupId) return null
-              const type = connType(l.type)
-              const geo = ropeGeometry(a, b)
-              const fresh = !initialLinksRef.current.has(l.id)
-              const label = l.label || ''
-              const labelW = Math.min(240, 26 + label.length * 6.6)
-              return (
+        {ropeItems.length > 0 && (
+          <>
+            {/* Strings: behind the notes, like real pinned string. */}
+            <svg
+              className="ropes"
+              viewBox={`${-WORLD_SIZE / 2} ${-WORLD_SIZE / 2} ${WORLD_SIZE} ${WORLD_SIZE}`}
+              style={{ left: -WORLD_SIZE / 2, top: -WORLD_SIZE / 2, width: WORLD_SIZE, height: WORLD_SIZE }}
+            >
+              {ropeItems.map(({ l, type, geo, fresh }) => (
                 <g
                   key={l.id}
                   className={`rope ${fresh ? 'rope-new' : ''}`}
@@ -137,15 +139,6 @@ export default function Board({
                     d={geo.d}
                     style={{ stroke: type.color, strokeDasharray: type.dashed ? '7 7' : undefined }}
                   />
-                  {type.directed ? (
-                    <path className="rope-arrow" d={geo.arrow} style={{ fill: type.color }} />
-                  ) : null}
-                  {label ? (
-                    <g className="rope-labelwrap" transform={`translate(${geo.mid.x} ${geo.mid.y})`}>
-                      <rect className="rope-label-bg" x={-labelW / 2} y={-11} width={labelW} height={20} rx={4} />
-                      <text className="rope-label" textAnchor="middle" y={4}>{label}</text>
-                    </g>
-                  ) : null}
                   <path
                     className="rope-hit"
                     d={geo.d}
@@ -153,9 +146,34 @@ export default function Board({
                     onContextMenu={(e) => onCtxLink(e, l)}
                   />
                 </g>
-              )
-            })}
-          </svg>
+              ))}
+            </svg>
+            {/* Arrowheads + labels: in front so they read clearly. */}
+            <svg
+              className="rope-marks"
+              viewBox={`${-WORLD_SIZE / 2} ${-WORLD_SIZE / 2} ${WORLD_SIZE} ${WORLD_SIZE}`}
+              style={{ left: -WORLD_SIZE / 2, top: -WORLD_SIZE / 2, width: WORLD_SIZE, height: WORLD_SIZE }}
+            >
+              {ropeItems.map(({ l, type, geo }) => {
+                const label = l.label || ''
+                const labelW = Math.min(240, 26 + label.length * 6.6)
+                if (!type.directed && !label) return null
+                return (
+                  <g key={l.id} className="rope" data-from={l.from} data-to={l.to}>
+                    {type.directed ? (
+                      <path className="rope-arrow" d={geo.arrow} style={{ fill: type.color }} />
+                    ) : null}
+                    {label ? (
+                      <g className="rope-labelwrap" transform={`translate(${geo.mid.x} ${geo.mid.y})`}>
+                        <rect className="rope-label-bg" x={-labelW / 2} y={-11} width={labelW} height={20} rx={4} />
+                        <text className="rope-label" textAnchor="middle" y={4}>{label}</text>
+                      </g>
+                    ) : null}
+                  </g>
+                )
+              })}
+            </svg>
+          </>
         )}
 
         {envelopes.map((env) => (
