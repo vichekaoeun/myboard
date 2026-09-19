@@ -17,6 +17,7 @@ export default function Board({
   onCtxBackground, onCtxItem, onEditLocation, onResizeLocation, onLinkClick, onOpenLink, onCtxLink, hoverEnvId,
 }) {
   const pan = useRef(null)
+  const spaceRef = useRef(false)
   const [marquee, setMarquee] = useState(null)
   const isSel = useMemo(() => new Set(selectedIds), [selectedIds])
   const noteById = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
@@ -40,6 +41,25 @@ export default function Board({
     el.addEventListener('wheel', handleWheel, { passive: false })
     return () => el.removeEventListener('wheel', handleWheel)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hold Space to pan with the mouse (plain drag selects instead).
+  useEffect(() => {
+    const typing = () => {
+      const el = document.activeElement
+      return el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')
+    }
+    const down = (e) => { if (e.code === 'Space' && !typing()) spaceRef.current = true }
+    const up = (e) => { if (e.code === 'Space') spaceRef.current = false }
+    const blur = () => { spaceRef.current = false }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    window.addEventListener('blur', blur)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', blur)
+    }
+  }, [])
 
   function worldAt(e) {
     return cameraRef.current.worldPoint(e.clientX, e.clientY)
@@ -71,6 +91,13 @@ export default function Board({
   }
 
   function handleBgPointerDown(e) {
+    // Middle-mouse, or Space + drag, pans the board.
+    if (e.button === 1 || (e.button === 0 && spaceRef.current)) {
+      e.preventDefault()
+      e.stopPropagation()
+      startPan(e)
+      return
+    }
     if (e.button !== 0) return
     const w = worldAt(e)
     if (mode === 'note' || mode === 'pin' || mode === 'envelope') {
@@ -80,8 +107,8 @@ export default function Board({
       else onAddEnvelope(w.x, w.y)
       return
     }
-    // Ctrl/Cmd/Shift + drag on the cork = rubber-band select.
-    if (mode === 'move' && (e.ctrlKey || e.metaKey || e.shiftKey) && onSelectMany) {
+    // Dragging empty cork rubber-band selects (add to the selection with a modifier).
+    if (mode === 'move' && onSelectMany) {
       e.stopPropagation()
       startMarquee(e)
       return
@@ -91,6 +118,9 @@ export default function Board({
   }
 
   function startMarquee(e) {
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey
+    const base = additive ? selectedIds : []
+    if (!additive) onSelect(null)
     const start = { x: e.clientX, y: e.clientY }
     setMarquee({ x0: start.x, y0: start.y, x1: start.x, y1: start.y })
     const onMove = (ev) => {
@@ -107,7 +137,7 @@ export default function Board({
       music.forEach((m) => { if (hit(m.x, m.y, m.w, m.h)) ids.push(m.id) })
       cards.forEach((c) => { if (hit(c.x, c.y, c.w, c.h)) ids.push(c.id) })
       envelopes.forEach((en) => { if (hit(en.x, en.y, en.w, en.h)) ids.push(en.id) })
-      onSelectMany(ids)
+      onSelectMany(base.length ? [...new Set([...base, ...ids])] : ids)
     }
     const onUp = () => {
       window.removeEventListener('pointermove', onMove)

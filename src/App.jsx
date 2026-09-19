@@ -887,7 +887,7 @@ export default function App() {
         <input ref={importInputRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={onImportFile} />
       </div>
 
-      {showHint && <div className="tb-hint">wheel = pan · ctrl+wheel = zoom · drag by a pin to move</div>}
+      {showHint && <div className="tb-hint">drag = select · wheel = pan · ctrl+wheel = zoom</div>}
 
       {locationEditor && (
         <div className="location-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setLocationEditor(null) }}>
@@ -1074,9 +1074,9 @@ function HelpDialog({ onClose, onFit, onExport }) {
             <h3>Board</h3>
             <ul>
               <li>Wheel / two-finger scroll — <b>pan</b></li>
+              <li>Space or middle-drag — <b>pan</b></li>
               <li>Ctrl or Cmd + wheel — <b>zoom</b></li>
-              <li>Drag empty cork — <b>pan</b></li>
-              <li>Ctrl/Cmd + drag cork — <b>marquee select</b></li>
+              <li>Drag empty cork — <b>marquee select</b></li>
               <li>Ctrl/Cmd + click items — <b>multi-select</b></li>
               <li>Drag any selected item — moves the <b>whole selection</b></li>
               <li>Double-click empty board — <b>new note</b></li>
