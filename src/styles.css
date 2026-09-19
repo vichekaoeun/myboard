@@ -1123,7 +1123,7 @@ body {
   background: transparent;
   color: #d8cdbc;
   font: 600 13px 'Inter', sans-serif;
-  padding: 7px 12px;
+  padding: 8px 10px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -1143,8 +1143,7 @@ body {
   background: rgba(255, 255, 255, 0.06);
   border-radius: 10px;
   animation: toolbarSlideIn 0.2s ease-out;
-}
-.tb-link-type {
+}.tb-link-type {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1166,6 +1165,66 @@ body {
 }
 .tb-link-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25); }
 .tb-link-name { white-space: nowrap; }
+
+/* separator between mode tools and insert tools */
+.tb-div {
+  width: 1px;
+  align-self: stretch;
+  margin: 3px 5px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* overflow menu */
+.tb-more { position: relative; display: flex; }
+.tb-more-dots { display: block; font-size: 17px; line-height: 13px; letter-spacing: 1px; }
+.icon-btn.on { background: rgba(255, 255, 255, 0.14); color: #fff; }
+.tb-menu {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  z-index: 220;
+  min-width: 216px;
+  padding: 6px;
+  background: rgba(28, 23, 16, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), 0 3px 10px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(12px);
+  animation: menuin 0.14s ease-out;
+}
+@keyframes menuin {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+.tb-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #f2e8d9;
+  font: 500 13px 'Inter', system-ui, sans-serif;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.tb-menu-item:hover { background: rgba(255, 255, 255, 0.1); }
+.tb-menu-div { height: 1px; margin: 5px 6px; background: rgba(255, 255, 255, 0.1); }
+.tb-kbd {
+  flex: none;
+  min-width: 18px;
+  padding: 2px 6px;
+  color: rgba(255, 235, 205, 0.65);
+  font: 600 10.5px 'Inter', system-ui, sans-serif;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+}
 
 .tb-search { position: relative; }.tb-search input {
   width: 220px;

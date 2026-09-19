@@ -5,9 +5,8 @@ import { Camera } from './camera.js'
 import { fanPoses } from './Envelope.jsx'
 import { CassetteIcon, PaperClip } from './art.jsx'
 import {
-  CopyIcon, DownloadIcon, EnvelopeIcon, FileIcon, FitIcon, HelpIcon,
-  LinkIcon, MoveIcon, NewspaperIcon, NoteIcon, PinIcon, RedoIcon, SearchIcon, SignOutIcon, UndoIcon, UploadIcon,
-  ZoomInIcon, ZoomOutIcon,
+  EnvelopeIcon, FileIcon, LinkIcon, MoveIcon, NewspaperIcon, NoteIcon,
+  PinIcon, RedoIcon, SearchIcon, SignOutIcon, UndoIcon, ZoomInIcon, ZoomOutIcon,
 } from './icons.jsx'
 import * as store from './store.js'
 import { CONNECTION_ORDER, CONNECTION_TYPES } from './connections.js'
@@ -36,6 +35,10 @@ export default function App() {
   const worldLayerRef = useRef(null)
   const cameraRef = useRef(null)
   const hoverRef = useRef(null)
+  const clipInputRef = useRef(null)
+  const musicInputRef = useRef(null)
+  const importInputRef = useRef(null)
+  const [moreOpen, setMoreOpen] = useState(false)
   const [hoverEnvId, setHoverEnvId] = useState(null)
   const [ctx, setCtx] = useState(null)
   const [help, setHelp] = useState(false)
@@ -420,39 +423,7 @@ export default function App() {
     setCtx({ x: e.clientX, y: e.clientY, kind: 'link', item: link, wx: 0, wy: 0 })
   }, [])
 
-  // ---- keyboard ---------------------------------------------------------------
-
-  useEffect(() => {
-    const onKey = (e) => {
-      const el = document.activeElement
-      const editing = el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')
-      if (editing) return
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault()
-        if (e.shiftKey) store.redoFn()
-        else store.undo()
-        return
-      }
-      const k = e.key
-      if (k === 'Delete' || k === 'Backspace') {
-        const s = store.getState().selected
-        if (s) { e.preventDefault(); store.deleteItem(s) }
-        return
-      }
-      if (k === 'Escape') {
-        if (ctx) setCtx(null)
-        else if (linkFrom) { linkFromRef.current = null; setLinkFrom(null) }
-        else if (store.getState().mode !== 'move') store.setMode('move')
-        else if (store.getState().selected) store.select(null)
-        return
-      }
-      if (k === '?') { setHelp(true); return }
-      const toolMap = { '1': 'move', '2': 'note', '3': 'pin', '4': 'envelope', '5': 'link', m: 'move', n: 'note', p: 'pin', e: 'envelope', l: 'link' }
-      if (toolMap[k]) store.setMode(toolMap[k])
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [ctx, linkFrom])
+  // ---- keyboard shortcuts are wired up after the callbacks below ----
 
   // Clicking anywhere outside the context menu dismisses it
   useEffect(() => {
@@ -464,6 +435,17 @@ export default function App() {
     window.addEventListener('pointerdown', onPointerDown, true)
     return () => window.removeEventListener('pointerdown', onPointerDown, true)
   }, [ctx])
+
+  // Close the toolbar "more" menu when clicking elsewhere
+  useEffect(() => {
+    if (!moreOpen) return
+    const onPointerDown = (e) => {
+      if (e.target && e.target.closest && e.target.closest('.tb-more')) return
+      setMoreOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    return () => window.removeEventListener('pointerdown', onPointerDown, true)
+  }, [moreOpen])
 
   // ---- view helpers -----------------------------------------------------------
 
@@ -665,6 +647,49 @@ export default function App() {
     say('Duplicated')
   }, [say])
 
+  // ---- keyboard ---------------------------------------------------------------
+
+  useEffect(() => {
+    const onKey = (e) => {
+      const el = document.activeElement
+      const editing = el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')
+      if (editing) return
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) store.redoFn()
+        else store.undo()
+        return
+      }
+      const k = e.key
+      if (k === 'Escape') {
+        if (ctx) setCtx(null)
+        else if (moreOpen) setMoreOpen(false)
+        else if (linkFrom) { linkFromRef.current = null; setLinkFrom(null) }
+        else if (store.getState().mode !== 'move') store.setMode('move')
+        else if (store.getState().selected) store.select(null)
+        return
+      }
+      if (k === 'Delete' || k === 'Backspace') {
+        const s = store.getState().selected
+        if (s) { e.preventDefault(); store.deleteItem(s) }
+        return
+      }
+      if (k === '?') { setHelp(true); return }
+      // Single-key shortcuts never fire with a modifier held.
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const key = k.toLowerCase()
+      if (key === 'i') { clipInputRef.current?.click(); return }
+      if (key === 'a') { musicInputRef.current?.click(); return }
+      if (key === 'c') { handleAddCard(); return }
+      if (key === 'd') { copySelected(); return }
+      if (key === 'f') { fitView(); return }
+      const toolMap = { '1': 'move', '2': 'note', '3': 'pin', '4': 'envelope', '5': 'link', m: 'move', n: 'note', p: 'pin', e: 'envelope', l: 'link' }
+      if (toolMap[key]) store.setMode(toolMap[key])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [ctx, linkFrom, moreOpen, handleAddCard, copySelected, fitView])
+
   // obey no-emoji-ish default but these are handy: keep simple text icons above
 
   if (!authChecked) {
@@ -741,10 +766,19 @@ export default function App() {
               onClick={() => store.setMode(t.id)}
               title={toolTitle(t.id)}
             >
-              <t.icon size={14} />
-              <span>{t.label}</span>
+              <t.icon size={15} />
             </button>
           ))}
+          <span className="tb-div" />
+          <button className="tool-btn" onClick={() => clipInputRef.current?.click()} title="Add image (I)">
+            <PaperClip size={18} />
+          </button>
+          <button className="tool-btn" onClick={() => musicInputRef.current?.click()} title="Add audio (A)">
+            <CassetteIcon size={20} />
+          </button>
+          <button className="tool-btn" onClick={handleAddCard} title="Save a link card (C)">
+            <NewspaperIcon size={16} />
+          </button>
         </div>
 
         {state.mode === 'link' && (
@@ -800,32 +834,33 @@ export default function App() {
         <div className="tb-actions">
           <button className="icon-btn" onClick={() => store.undo()} title="Undo (Ctrl+Z)"><UndoIcon size={15} /></button>
           <button className="icon-btn" onClick={() => store.redoFn()} title="Redo (Ctrl+Shift+Z)"><RedoIcon size={15} /></button>
-          <label className="icon-btn" title="Add image clip">
-            <PaperClip size={18} />
-            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleClipFile} />
-          </label>
-          <button className="icon-btn" onClick={handleAddCard} title="Save a link as an article card"><NewspaperIcon size={16} /></button>
-          <label className="icon-btn" title="Add cassette music">
-            <CassetteIcon size={20} />
-            <input type="file" accept="audio/*" style={{ display: 'none' }} onChange={handleMusicFile} />
-          </label>
-          <button className="icon-btn" onClick={copySelected} title="Duplicate selected"><CopyIcon size={15} /></button>
-          <button className="icon-btn" onClick={fitView} title="Fit everything"><FitIcon size={15} /></button>
-          <button className="icon-btn" onClick={() => setHelp(true)} title="Keyboard shortcuts (?)"><HelpIcon size={15} /></button>
-          <button className="icon-btn" onClick={() => { store.saveNow(); doExport() }} title="Export board as JSON"><DownloadIcon size={15} /></button>
-          <label className="icon-btn" title="Import board JSON">
-            <UploadIcon size={15} />
-            <input type="file" accept="application/json" style={{ display: 'none' }} onChange={onImportFile} />
-          </label>
+          <div className="tb-more">
+            <button
+              className={`icon-btn ${moreOpen ? 'on' : ''}`}
+              onClick={() => setMoreOpen((v) => !v)}
+              title="More actions"
+            >
+              <span className="tb-more-dots" aria-hidden="true">⋯</span>
+            </button>
+            {moreOpen && (
+              <div className="tb-menu" onPointerDown={(e) => e.stopPropagation()}>
+                <button className="tb-menu-item" onClick={() => { setMoreOpen(false); copySelected() }}>Duplicate<span className="tb-kbd">D</span></button>
+                <button className="tb-menu-item" onClick={() => { setMoreOpen(false); fitView() }}>Fit everything<span className="tb-kbd">F</span></button>
+                <button className="tb-menu-item" onClick={() => { setMoreOpen(false); setHelp(true) }}>Shortcuts &amp; help<span className="tb-kbd">?</span></button>
+                <div className="tb-menu-div" />
+                <button className="tb-menu-item" onClick={() => { setMoreOpen(false); store.saveNow(); doExport() }}>Export board</button>
+                <button className="tb-menu-item" onClick={() => { setMoreOpen(false); importInputRef.current?.click() }}>Import board</button>
+              </div>
+            )}
+          </div>
+          {session && (
+            <button className="icon-btn" onClick={handleSignOut} title="Sign out"><SignOutIcon size={15} /></button>
+          )}
         </div>
 
-        {session && (
-          <div className="tb-user" title={session.email || 'Signed in'}>
-            <span className="tb-user-dot" aria-hidden="true" />
-            <span className="tb-user-email">{session.email || 'Signed in'}</span>
-            <button className="icon-btn" onClick={handleSignOut} title="Sign out"><SignOutIcon size={15} /></button>
-          </div>
-        )}
+        <input ref={clipInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleClipFile} />
+        <input ref={musicInputRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={handleMusicFile} />
+        <input ref={importInputRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={onImportFile} />
       </div>
 
       {showHint && <div className="tb-hint">wheel = pan · ctrl+wheel = zoom · drag by a pin to move</div>}
@@ -997,11 +1032,11 @@ export default function App() {
 
 function toolTitle(id) {
   return {
-    move: 'Move things around (1) — drag empty board to pan',
-    note: 'Click the board to drop a note (2)',
-    pin: 'Click the board to drop a location pin (3)',
-    envelope: 'Click the board to place an envelope (4)',
-    link: 'Link notes with red string (5) — click one note, then another',
+    move: 'Move (1 / M) — drag empty board to pan',
+    note: 'Note (2 / N) — click the board to drop one',
+    pin: 'Pin (3 / P) — click the board to drop a location',
+    envelope: 'Envelope (4 / E) — click the board to place one',
+    link: 'Link (5 / L) — pick a type, then click two notes',
   }[id]
 }
 
@@ -1049,6 +1084,16 @@ function HelpDialog({ onClose, onFit, onExport }) {
               <li>Undo / redo — Ctrl+Z, Ctrl+Shift+Z</li>
               <li>Delete key removes the selected item</li>
               <li>Export / import — keep a backup file</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Shortcuts</h3>
+            <ul>
+              <li><b>1–5</b> (or <b>M N P E L</b>) — tools</li>
+              <li><b>I</b> image · <b>A</b> audio · <b>C</b> link card</li>
+              <li><b>D</b> duplicate · <b>F</b> fit · <b>?</b> help</li>
+              <li><b>Ctrl/Cmd+Z</b> undo · add <b>Shift</b> to redo</li>
+              <li><b>Delete</b> removes selected · <b>Esc</b> cancels</li>
             </ul>
           </div>
         </div>
