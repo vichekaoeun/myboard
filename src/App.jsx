@@ -564,6 +564,14 @@ export default function App() {
     if (ids.length > 1 && ids.includes(id)) store.deleteSelection()
     else store.deleteItem(id)
   }
+  const batchFront = (id) => {
+    const ids = store.getState().selectedIds || []
+    store.bringToFront(ids.length > 1 && ids.includes(id) ? ids : [id])
+  }
+  const batchBack = (id) => {
+    const ids = store.getState().selectedIds || []
+    store.sendToBack(ids.length > 1 && ids.includes(id) ? ids : [id])
+  }
 
   const ctxActions = (() => {
     if (!ctx) return []
@@ -609,6 +617,12 @@ export default function App() {
       base.push({ label: 'Refresh preview', icon: '⟳', run: () => refreshCard(it) })
       base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(it.id) })
       base.push({ label: 'Delete card', icon: '×', run: () => batchDelete(it.id), danger: true })
+    }
+    if (ctx.kind !== 'bg' && ctx.kind !== 'link') {
+      const it = ctx.item
+      base.push({ divider: true })
+      base.push({ label: 'Bring to front', icon: '↑', run: () => batchFront(it.id) })
+      base.push({ label: 'Send to back', icon: '↓', run: () => batchBack(it.id) })
     }
     return base.filter((a) => a.show !== false)
   })()
@@ -666,10 +680,14 @@ export default function App() {
       const editing = el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')
       if (editing) {
         // While typing, Delete only removes a multi-selection; otherwise it's a
-        // normal text delete.
+        // normal text delete. Cmd/Ctrl + ] / [ reorder without typing a char.
         if (e.key === 'Delete' || e.key === 'Backspace') {
           const st = store.getState()
           if ((st.selectedIds || []).length > 1) { e.preventDefault(); store.deleteSelection() }
+        } else if ((e.metaKey || e.ctrlKey) && (e.key === ']' || e.key === '[')) {
+          e.preventDefault()
+          if (e.key === ']') store.bringToFront()
+          else store.sendToBack()
         }
         return
       }
@@ -702,6 +720,8 @@ export default function App() {
       if (key === 'c') { handleAddCard(); return }
       if (key === 'd') { copySelected(); return }
       if (key === 'f') { fitView(); return }
+      if (key === ']') { store.bringToFront(); return }
+      if (key === '[') { store.sendToBack(); return }
       const toolMap = { '1': 'move', '2': 'note', '3': 'pin', '4': 'envelope', '5': 'link', m: 'move', n: 'note', p: 'pin', e: 'envelope', l: 'link' }
       if (toolMap[key]) store.setMode(toolMap[key])
     }
@@ -868,6 +888,9 @@ export default function App() {
             </button>
             {moreOpen && (
               <div className="tb-menu" onPointerDown={(e) => e.stopPropagation()}>
+                <button className="tb-menu-item" onClick={() => { setMoreOpen(false); store.bringToFront() }}>Bring to front<span className="tb-kbd">]</span></button>
+                <button className="tb-menu-item" onClick={() => { setMoreOpen(false); store.sendToBack() }}>Send to back<span className="tb-kbd">[</span></button>
+                <div className="tb-menu-div" />
                 <button className="tb-menu-item" onClick={() => { setMoreOpen(false); copySelected() }}>Duplicate<span className="tb-kbd">D</span></button>
                 <button className="tb-menu-item" onClick={() => { setMoreOpen(false); fitView() }}>Fit everything<span className="tb-kbd">F</span></button>
                 <button className="tb-menu-item" onClick={() => { setMoreOpen(false); setHelp(true) }}>Shortcuts &amp; help<span className="tb-kbd">?</span></button>
@@ -1119,6 +1142,7 @@ function HelpDialog({ onClose, onFit, onExport }) {
               <li><b>1–5</b> (or <b>M N P E L</b>) — tools</li>
               <li><b>I</b> image · <b>A</b> audio · <b>C</b> link card</li>
               <li><b>D</b> duplicate · <b>F</b> fit · <b>?</b> help</li>
+              <li><b>]</b> bring to front · <b>[</b> send to back (add Ctrl/Cmd while typing)</li>
               <li><b>Ctrl/Cmd+Z</b> undo · add <b>Shift</b> to redo</li>
               <li><b>Delete</b> removes selected · <b>Esc</b> cancels</li>
             </ul>

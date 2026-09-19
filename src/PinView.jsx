@@ -1,6 +1,7 @@
 import React, { memo, useRef } from 'react'
 import { PushPin } from './art.jsx'
 import { pointerSelect, startGroupDrag } from './drag.js'
+import { stackZ } from './stack.js'
 
 export default memo(function PinView({ item, selected, primary, getZoom, onPointerSelect, onMoveEnd, onContextMenu, onEditLocation, onResizeLocation }) {
   const wrapRef = useRef(null)
@@ -82,7 +83,7 @@ export default memo(function PinView({ item, selected, primary, getZoom, onPoint
       data-id={item.id}
       className={`pin-item ${item.location ? 'pin-location-item' : ''} ${selected ? 'pin-selected' : ''}`}
       style={{
-        left: item.x - 23, top: item.y - 88, width: 46, height: 92, zIndex: selected ? 35 : 8,
+        left: item.x - 23, top: item.y - 88, width: 46, height: 92, zIndex: stackZ(item, 8, selected),
       }}
       onPointerDown={startDrag}
       onContextMenu={(e) => { if (onContextMenu) { e.preventDefault(); e.stopPropagation(); onContextMenu(e, item, 'pin') } }}

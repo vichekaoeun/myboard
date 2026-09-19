@@ -3,6 +3,7 @@ import { PushPin } from './art.jsx'
 import { NOTE_COLORS } from './store.js'
 import { updateRopesForNote } from './ropes.js'
 import { pointerSelect, startGroupDrag } from './drag.js'
+import { stackZ } from './stack.js'
 import { connText, connType } from './connections.js'
 
 function noteTitle(n) {
@@ -289,7 +290,7 @@ export default memo(function NoteView({
     width: item.w * scale,
     transformOrigin: 'center',
     transform: `rotate(${rotation || 0}deg)`,
-    zIndex: z ?? (selected ? 40 : 10),
+    zIndex: z != null ? z : stackZ(item, 10, selected),
   }
 
   return (
@@ -298,7 +299,7 @@ export default memo(function NoteView({
         className="scale-layer"
         style={{ width: item.w, transform: scale === 1 ? undefined : `scale(${scale})`, transformOrigin: '0 0' }}
       >
-        <div ref={paperRef} className="note-paper note-paper-colored" style={{ width: item.w, minHeight: item.sh || item.h || 300, background: color }} onPointerDown={(e) => { e.stopPropagation(); if (mode === 'link' && onLinkClick) { e.preventDefault(); onLinkClick(item.id); return } const res = onPointerSelect(item.id, e); if (res.drag && res.group) startGroupDrag(e, getZoom, item.id) }}>
+        <div ref={paperRef} className="note-paper note-paper-colored" style={{ width: item.w, minHeight: item.sh || item.h || 300, background: color }} onPointerDown={(e) => { e.stopPropagation(); if (mode === 'link' && onLinkClick) { e.preventDefault(); onLinkClick(item.id); return } const res = onPointerSelect(item.id, e); if (res.drag && res.group) { startGroupDrag(e, getZoom, item.id); return } }}>
           <div
             ref={edRef}
             className="note-ed"

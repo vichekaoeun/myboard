@@ -1,6 +1,7 @@
 import React, { memo, useRef } from 'react'
 import { PaperClip } from './art.jsx'
 import { pointerSelect, startGroupDrag } from './drag.js'
+import { stackZ } from './stack.js'
 
 export default memo(function ClipView({ item, selected, primary, getZoom, onPointerSelect, onMoveEnd, onResizeEnd, onContextMenu }) {
   const wrapRef = useRef(null)
@@ -106,7 +107,7 @@ export default memo(function ClipView({ item, selected, primary, getZoom, onPoin
       ref={wrapRef}
       data-id={item.id}
       className={`clip-item ${selected ? 'clip-selected' : ''}`}
-      style={{ left: item.x, top: item.y, width: item.w, height: item.h, transform: `rotate(${item.rotation || 0}deg)`, zIndex: selected ? 42 : 12 }}
+      style={{ left: item.x, top: item.y, width: item.w, height: item.h, transform: `rotate(${item.rotation || 0}deg)`, zIndex: stackZ(item, 12, selected) }}
       onPointerDown={startDrag}
       onContextMenu={(e) => { if (onContextMenu) { e.preventDefault(); e.stopPropagation(); onContextMenu(e, item, 'clip') } }}
     >

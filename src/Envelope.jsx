@@ -1,6 +1,7 @@
 import React, { memo, useEffect, useRef } from 'react'
 import { EnvelopeClosed, EnvelopeFlapOpen } from './art.jsx'
 import { pointerSelect, startGroupDrag } from './drag.js'
+import { stackZ } from './stack.js'
 
 export function fanPoses(env, noteIds, notes) {
   const n = noteIds.length
@@ -153,7 +154,7 @@ return (
       className={`envelope ${selected ? 'envelope-selected' : ''} ${dropActive ? 'envelope-drop' : ''}`}
       style={{
         left: env.x, top: env.y, width: env.w, height: env.h,
-        zIndex: selected ? 30 : 12,
+        zIndex: stackZ(env, 12, selected),
       }}
       onPointerDown={startDrag}
       onDoubleClick={(e) => { e.stopPropagation(); onToggle(env.id) }}

@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useRef, useState } from 'react'
 import { pointerSelect, startGroupDrag } from './drag.js'
+import { stackZ } from './stack.js'
 
 export default memo(function MusicView({ item, selected, primary, getZoom, onPointerSelect, onMoveEnd, onResizeEnd, onContextMenu }) {
   const wrapRef = useRef(null)
@@ -148,7 +149,7 @@ export default memo(function MusicView({ item, selected, primary, getZoom, onPoi
       data-id={item.id}
       data-playing={playing}
       className={`music-item ${selected ? 'music-selected' : ''}`}
-      style={{ left: item.x, top: item.y, width: item.w, height: item.h, zIndex: selected ? 43 : 13 }}
+      style={{ left: item.x, top: item.y, width: item.w, height: item.h, zIndex: stackZ(item, 13, selected) }}
       onPointerDown={startDrag}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, item, 'music') }}
     >

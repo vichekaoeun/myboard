@@ -841,6 +841,59 @@ export function duplicateSelection() {
   })
 }
 
+// ---- stacking order ----------------------------------------------------------
+
+// Fallback stacking per item type (used until an item has been re-ordered).
+export const Z_DEFAULT = { note: 10, pin: 8, clip: 12, music: 13, card: 11, envelope: 12 }
+
+function effZ(item, kind) {
+  return item && item.z != null ? item.z : (Z_DEFAULT[kind] ?? 10)
+}
+
+function zBounds(s) {
+  let min = Infinity
+  let max = -Infinity
+  const scan = (arr, kind) => (arr || []).forEach((it) => {
+    const z = effZ(it, kind)
+    if (z < min) min = z
+    if (z > max) max = z
+  })
+  scan(s.notes, 'note'); scan(s.pins, 'pin'); scan(s.clips, 'clip')
+  scan(s.music, 'music'); scan(s.cards, 'card'); scan(s.envelopes, 'envelope')
+  return { min, max }
+}
+
+function reorderZ(s, list, place) {
+  const set = new Set(list)
+  const { min, max } = zBounds(s)
+  const base = place === 'front' ? (max === -Infinity ? 0 : max) : (min === Infinity ? 0 : min)
+  const step = place === 'front' ? 1 : -1
+  const order = new Map()
+  list.forEach((id, i) => order.set(id, base + step * (i + 1)))
+  const apply = (arr) => arr.map((it) => (set.has(it.id) ? { ...it, z: order.get(it.id) } : it))
+  return {
+    ...s,
+    notes: apply(s.notes),
+    pins: apply(s.pins),
+    clips: apply(s.clips),
+    music: apply(s.music),
+    cards: apply(s.cards || []),
+    envelopes: apply(s.envelopes),
+  }
+}
+
+export function bringToFront(ids) {
+  const list = Array.isArray(ids) ? ids : selectionIds()
+  if (!list.length) return
+  mutate((s) => reorderZ(s, list, 'front'))
+}
+
+export function sendToBack(ids) {
+  const list = Array.isArray(ids) ? ids : selectionIds()
+  if (!list.length) return
+  mutate((s) => reorderZ(s, list, 'back'))
+}
+
 export function importState(data) {
   const base = defaultState()
   const s = {

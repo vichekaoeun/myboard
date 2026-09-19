@@ -1,5 +1,6 @@
 import React, { memo, useRef } from 'react'
 import { pointerSelect, startGroupDrag } from './drag.js'
+import { stackZ } from './stack.js'
 
 // A saved link rendered as a newspaper clipping pinned to the cork.
 export default memo(function CardView({
@@ -111,7 +112,7 @@ export default memo(function CardView({
       style={{
         left: item.x, top: item.y, width: item.w, height: item.h,
         transform: `rotate(${item.rotation || 0}deg)`,
-        zIndex: selected ? 41 : 11,
+        zIndex: stackZ(item, 11, selected),
       }}
       onPointerDown={startDrag}
       onContextMenu={(e) => { if (onContextMenu) { e.preventDefault(); e.stopPropagation(); onContextMenu(e, item, 'card') } }}
