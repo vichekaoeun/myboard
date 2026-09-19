@@ -109,6 +109,7 @@ export default function Board({
     }
     // Dragging empty cork rubber-band selects (add to the selection with a modifier).
     if (mode === 'move' && onSelectMany) {
+      e.preventDefault()
       e.stopPropagation()
       startMarquee(e)
       return
@@ -121,9 +122,15 @@ export default function Board({
     const additive = e.shiftKey || e.ctrlKey || e.metaKey
     const base = additive ? selectedIds : []
     if (!additive) onSelect(null)
+    // Stop the drag from starting a native text selection across the notes.
+    const active = document.activeElement
+    if (active && active.blur) active.blur()
+    if (window.getSelection) { const sel = window.getSelection(); if (sel) sel.removeAllRanges() }
+    document.body.classList.add('mb-selecting')
     const start = { x: e.clientX, y: e.clientY }
     setMarquee({ x0: start.x, y0: start.y, x1: start.x, y1: start.y })
     const onMove = (ev) => {
+      ev.preventDefault()
       setMarquee({ x0: start.x, y0: start.y, x1: ev.clientX, y1: ev.clientY })
       const a = worldAt({ clientX: start.x, clientY: start.y })
       const b = worldAt({ clientX: ev.clientX, clientY: ev.clientY })
@@ -143,6 +150,7 @@ export default function Board({
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
+      document.body.classList.remove('mb-selecting')
       setMarquee(null)
     }
     window.addEventListener('pointermove', onMove)
@@ -378,6 +386,7 @@ export default function Board({
           />
         ))}
       </div>
+      </div>
       {marquee && (
         <div
           className="marquee"
@@ -389,7 +398,6 @@ export default function Board({
           }}
         />
       )}
-      </div>
     </div>
   )
 }
