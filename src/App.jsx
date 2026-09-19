@@ -415,6 +415,10 @@ export default function App() {
   const handleCtxBackground = useCallback((c) => setCtx({ ...c, kind: 'bg' }), [])
   const handleCtxItem = useCallback((e, item, kind) => {
     const p = cameraRef.current.worldPoint(e.clientX, e.clientY)
+    // Right-clicking an item outside the current selection selects just it, so
+    // the menu has a clear target (and acts on the selection when there is one).
+    const ids = store.getState().selectedIds || []
+    if (item && !ids.includes(item.id)) store.select(item.id)
     setCtx({ x: e.clientX, y: e.clientY, kind, item, wx: p.x, wy: p.y })
   }, [])
 
@@ -576,6 +580,10 @@ export default function App() {
   const ctxActions = (() => {
     if (!ctx) return []
     const base = []
+    const selCount = (store.getState().selectedIds || []).length
+    const multi = selCount > 1
+    const dupLabel = multi ? `Duplicate ${selCount} items` : 'Duplicate'
+    const delLabel = (one) => (multi ? `Delete ${selCount} items` : one)
     if (ctx.kind === 'bg') {
       base.push({ label: 'Add note here', icon: '＋', run: () => store.addNote(ctx.wx, ctx.wy) })
       base.push({ label: 'Add location pin here', icon: '⍟', run: () => handleAddPin(ctx.wx, ctx.wy) })
@@ -583,25 +591,25 @@ export default function App() {
       base.push({ label: 'Fit everything in view', icon: '◱', run: fitView })
     } else if (ctx.kind === 'note') {
       const it = ctx.item
-      base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(it.id) })
+      base.push({ label: dupLabel, icon: '❐', run: () => batchDuplicate(it.id) })
       base.push({ label: 'Take out of envelope', icon: '⌧', run: () => store.detachNote(it.id), show: !!it.groupId })
-      base.push({ label: 'Delete note', icon: '×', run: () => batchDelete(it.id), danger: true })
+      base.push({ label: delLabel('Delete note'), icon: '×', run: () => batchDelete(it.id), danger: true })
     } else if (ctx.kind === 'env') {
       const it = ctx.item
       base.push({ label: it.expanded ? 'Tuck letters back in' : 'Open envelope', icon: '✉', run: () => store.toggleEnvelope(it.id) })
-      base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(it.id) })
-      base.push({ label: 'Delete envelope', icon: '×', run: () => batchDelete(it.id), danger: true })
+      base.push({ label: dupLabel, icon: '❐', run: () => batchDuplicate(it.id) })
+      base.push({ label: delLabel('Delete envelope'), icon: '×', run: () => batchDelete(it.id), danger: true })
     } else if (ctx.kind === 'pin') {
       base.push({ label: 'Edit location', icon: '⌖', run: () => handleEditLocation(ctx.item) })
-      base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(ctx.item.id) })
-      base.push({ label: 'Delete pin', icon: '×', run: () => batchDelete(ctx.item.id), danger: true })
+      base.push({ label: dupLabel, icon: '❐', run: () => batchDuplicate(ctx.item.id) })
+      base.push({ label: delLabel('Delete pin'), icon: '×', run: () => batchDelete(ctx.item.id), danger: true })
     } else if (ctx.kind === 'clip') {
-      base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(ctx.item.id) })
-      base.push({ label: 'Delete clip', icon: '×', run: () => batchDelete(ctx.item.id), danger: true })
+      base.push({ label: dupLabel, icon: '❐', run: () => batchDuplicate(ctx.item.id) })
+      base.push({ label: delLabel('Delete clip'), icon: '×', run: () => batchDelete(ctx.item.id), danger: true })
     } else if (ctx.kind === 'music') {
       base.push({ label: 'Edit cassette', icon: '✎', run: () => handleEditMusic(ctx.item) })
-      base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(ctx.item.id) })
-      base.push({ label: 'Delete cassette', icon: '×', run: () => batchDelete(ctx.item.id), danger: true })
+      base.push({ label: dupLabel, icon: '❐', run: () => batchDuplicate(ctx.item.id) })
+      base.push({ label: delLabel('Delete cassette'), icon: '×', run: () => batchDelete(ctx.item.id), danger: true })
     } else if (ctx.kind === 'link') {
       const it = ctx.item
       base.push({ label: 'Edit label…', icon: '✎', run: () => {
@@ -615,8 +623,8 @@ export default function App() {
       base.push({ label: 'Open link', icon: '↗', run: () => handleOpenCard(it) })
       base.push({ label: 'Copy link', icon: '⧉', run: () => { if (navigator.clipboard) navigator.clipboard.writeText(it.url); say('Link copied') } })
       base.push({ label: 'Refresh preview', icon: '⟳', run: () => refreshCard(it) })
-      base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(it.id) })
-      base.push({ label: 'Delete card', icon: '×', run: () => batchDelete(it.id), danger: true })
+      base.push({ label: dupLabel, icon: '❐', run: () => batchDuplicate(it.id) })
+      base.push({ label: delLabel('Delete card'), icon: '×', run: () => batchDelete(it.id), danger: true })
     }
     if (ctx.kind !== 'bg' && ctx.kind !== 'link') {
       const it = ctx.item

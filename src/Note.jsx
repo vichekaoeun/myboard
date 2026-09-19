@@ -299,7 +299,7 @@ export default memo(function NoteView({
         className="scale-layer"
         style={{ width: item.w, transform: scale === 1 ? undefined : `scale(${scale})`, transformOrigin: '0 0' }}
       >
-        <div ref={paperRef} className="note-paper note-paper-colored" style={{ width: item.w, minHeight: item.sh || item.h || 300, background: color }} onPointerDown={(e) => { e.stopPropagation(); if (mode === 'link' && onLinkClick) { e.preventDefault(); onLinkClick(item.id); return } const res = onPointerSelect(item.id, e); if (res.drag && res.group) { startGroupDrag(e, getZoom, item.id); return } }}>
+        <div ref={paperRef} className="note-paper note-paper-colored" style={{ width: item.w, minHeight: item.sh || item.h || 300, background: color }} onPointerDown={(e) => { e.stopPropagation(); if (e.button !== undefined && e.button !== 0) return; if (mode === 'link' && onLinkClick) { e.preventDefault(); onLinkClick(item.id); return } const res = onPointerSelect(item.id, e); if (res.drag && res.group) { startGroupDrag(e, getZoom, item.id); return } }}>
           <div
             ref={edRef}
             className="note-ed"
