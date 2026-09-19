@@ -1,15 +1,18 @@
 import React, { memo, useRef } from 'react'
 import { PaperClip } from './art.jsx'
+import { pointerSelect, startGroupDrag } from './drag.js'
 
-export default memo(function ClipView({ item, selected, getZoom, onSelect, onMoveEnd, onResizeEnd, onContextMenu }) {
+export default memo(function ClipView({ item, selected, primary, getZoom, onPointerSelect, onMoveEnd, onResizeEnd, onContextMenu }) {
   const wrapRef = useRef(null)
   const drag = useRef(null)
 
   function startDrag(e) {
     if (e.button !== undefined && e.button !== 0) return
+    const res = onPointerSelect(item.id, e)
     e.preventDefault()
     e.stopPropagation()
-    onSelect(item.id)
+    if (!res.drag) return
+    if (res.group) { startGroupDrag(e, getZoom, item.id); return }
     const start = { sx: e.clientX, sy: e.clientY, x: item.x, y: item.y }
     const state = { moved: false, x: item.x, y: item.y }
     drag.current = state
@@ -39,7 +42,6 @@ export default memo(function ClipView({ item, selected, getZoom, onSelect, onMov
       const current = drag.current
       drag.current = null
       if (current && current.moved) onMoveEnd(item.id, current.x, current.y)
-      else onSelect(item.id)
     }
 
     el.addEventListener('pointermove', onMove)
@@ -111,7 +113,7 @@ export default memo(function ClipView({ item, selected, getZoom, onSelect, onMov
       <div className="clip-icon"><PaperClip /></div>
       <img src={item.url} alt="Attached image" draggable={false} />
       {selected && <div className="clip-selection" />}
-      {selected && (
+      {primary && (
         <div className="clip-resize">
           <div className="resize-nw" onPointerDown={(e) => startResize(e, 'nw')} />
           <div className="resize-ne" onPointerDown={(e) => startResize(e, 'ne')} />

@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useRef } from 'react'
 import { EnvelopeClosed, EnvelopeFlapOpen } from './art.jsx'
+import { pointerSelect, startGroupDrag } from './drag.js'
 
 export function fanPoses(env, noteIds, notes) {
   const n = noteIds.length
@@ -27,8 +28,8 @@ export function fanPoses(env, noteIds, notes) {
 }
 
 export default memo(function EnvelopeView({
-  env, selected, dropActive, getZoom,
-  onSelect, onChange, onMoveEnd, onToggle, onContextMenu,
+  env, selected, primary, dropActive, getZoom,
+  onPointerSelect, onChange, onMoveEnd, onToggle, onContextMenu,
 }) {
   const wrapRef = useRef(null)
   const drag = useRef(null)
@@ -46,9 +47,11 @@ export default memo(function EnvelopeView({
 
   function startDrag(e) {
     if (e.button !== undefined && e.button !== 0) return
+    const res = onPointerSelect(env.id, e)
     e.preventDefault()
     e.stopPropagation()
-    onSelect(env.id)
+    if (!res.drag) return
+    if (res.group) { startGroupDrag(e, getZoom, env.id); return }
     const start = { sx: e.clientX, sy: e.clientY, x: env.x, y: env.y }
     const d = { moved: false, x: env.x, y: env.y }
     drag.current = d
@@ -75,7 +78,6 @@ export default memo(function EnvelopeView({
       drag.current = null
       if (!dd) return
       if (dd.moved) onMoveEnd(env.id, dd.x, dd.y)
-      else onSelect(env.id)
     }
     el.addEventListener('pointermove', onMove)
     el.addEventListener('pointerup', onUp)
@@ -188,12 +190,12 @@ return (
           suppressContentEditableWarning
           ref={titleRef}
           onBlur={commitTitle}
-          onPointerDown={(e) => { e.stopPropagation(); onSelect(env.id) }}
+          onPointerDown={(e) => { e.stopPropagation(); onPointerSelect(env.id, e) }}
           onDoubleClick={(e) => { e.preventDefault(); e.stopPropagation() }}
         />
       )}
 
-      {selected && (
+      {primary && (
         <div className="envelope-resize">
           <div className="resize-nw" onPointerDown={(e) => startResize(e, 'nw')} />
           <div className="resize-ne" onPointerDown={(e) => startResize(e, 'ne')} />

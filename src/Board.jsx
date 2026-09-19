@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import NoteView from './Note.jsx'
 import PinView from './PinView.jsx'
 import ClipView from './ClipView.jsx'
@@ -11,12 +11,14 @@ import { connType } from './connections.js'
 const WORLD_SIZE = 240000
 
 export default function Board({
-  containerRef, worldLayerRef, cameraRef, notes, pins, clips, music, cards = [], envelopes, links = [], connections = null, linkFrom = null, selected, mode, getZoom, tick,
-  onSelect, onChange, onLiveHeight, onEnvChange, onMoveEnd, onEnvMoveEnd, onPinMoveEnd, onClipMoveEnd, onClipResizeEnd, onMusicMoveEnd, onMusicResizeEnd, onCardMoveEnd, onCardResizeEnd, onOpenCard, onFanDrop, onDragMove,
+  containerRef, worldLayerRef, cameraRef, notes, pins, clips, music, cards = [], envelopes, links = [], connections = null, linkFrom = null, selected, selectedIds = [], mode, getZoom, tick,
+  onSelect, onPointerSelect, onSelectMany, onChange, onLiveHeight, onEnvChange, onMoveEnd, onEnvMoveEnd, onPinMoveEnd, onClipMoveEnd, onClipResizeEnd, onMusicMoveEnd, onMusicResizeEnd, onCardMoveEnd, onCardResizeEnd, onOpenCard, onFanDrop, onDragMove,
   onAddNote, onAddPin, onAddClip, onAddEnvelope, onToggleEnvelope,
   onCtxBackground, onCtxItem, onEditLocation, onResizeLocation, onLinkClick, onOpenLink, onCtxLink, hoverEnvId,
 }) {
   const pan = useRef(null)
+  const [marquee, setMarquee] = useState(null)
+  const isSel = useMemo(() => new Set(selectedIds), [selectedIds])
   const noteById = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
   // Strings present when the board opened shouldn't "draw in"; only ones added
   // during this session animate. This ref is seeded once on first render.
@@ -78,8 +80,44 @@ export default function Board({
       else onAddEnvelope(w.x, w.y)
       return
     }
+    // Ctrl/Cmd/Shift + drag on the cork = rubber-band select.
+    if (mode === 'move' && (e.ctrlKey || e.metaKey || e.shiftKey) && onSelectMany) {
+      e.stopPropagation()
+      startMarquee(e)
+      return
+    }
     onSelect(null)
     startPan(e)
+  }
+
+  function startMarquee(e) {
+    const start = { x: e.clientX, y: e.clientY }
+    setMarquee({ x0: start.x, y0: start.y, x1: start.x, y1: start.y })
+    const onMove = (ev) => {
+      setMarquee({ x0: start.x, y0: start.y, x1: ev.clientX, y1: ev.clientY })
+      const a = worldAt({ clientX: start.x, clientY: start.y })
+      const b = worldAt({ clientX: ev.clientX, clientY: ev.clientY })
+      const x0 = Math.min(a.x, b.x), y0 = Math.min(a.y, b.y)
+      const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y)
+      const ids = []
+      const hit = (x, y, w, h) => x < x1 && x + w > x0 && y < y1 && y + h > y0
+      notes.forEach((n) => { if (!n.groupId && hit(n.x, n.y, n.w || 250, n.h || 300)) ids.push(n.id) })
+      pins.forEach((p) => { if (hit(p.x - 23, p.y - 88, 46, 92)) ids.push(p.id) })
+      clips.forEach((c) => { if (hit(c.x, c.y, c.w, c.h)) ids.push(c.id) })
+      music.forEach((m) => { if (hit(m.x, m.y, m.w, m.h)) ids.push(m.id) })
+      cards.forEach((c) => { if (hit(c.x, c.y, c.w, c.h)) ids.push(c.id) })
+      envelopes.forEach((en) => { if (hit(en.x, en.y, en.w, en.h)) ids.push(en.id) })
+      onSelectMany(ids)
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      setMarquee(null)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }
 
   const handleWheel = (e) => {
@@ -180,10 +218,11 @@ export default function Board({
           <EnvelopeView
             key={env.id}
             env={env}
-            selected={selected === env.id}
+            selected={isSel.has(env.id)}
+            primary={selected === env.id}
             dropActive={hoverEnvId === env.id}
             getZoom={getZoom}
-            onSelect={onSelect}
+            onPointerSelect={onPointerSelect}
             onChange={onEnvChange}
             onMoveEnd={onEnvMoveEnd}
             onToggle={onToggleEnvelope}
@@ -211,7 +250,7 @@ export default function Board({
                 z={44}
                 tick={tick}
                 getZoom={getZoom}
-                onSelect={onSelect}
+                onPointerSelect={onPointerSelect}
                 onChange={onChange}
                 onLiveHeight={onLiveHeight}
                 onMoveEnd={() => {}}
@@ -232,13 +271,14 @@ export default function Board({
             y={note.y}
             scale={1}
             rotation={note.rotation}
-            selected={selected === note.id}
+            selected={isSel.has(note.id)}
+            primary={selected === note.id}
             mode={mode}
             linkSource={linkFrom === note.id}
             connections={selected === note.id ? connections : null}
             tick={tick}
             getZoom={getZoom}
-            onSelect={onSelect}
+            onPointerSelect={onPointerSelect}
             onChange={onChange}
             onLiveHeight={onLiveHeight}
             onMoveEnd={onMoveEnd}
@@ -254,9 +294,10 @@ export default function Board({
           <ClipView
             key={clip.id}
             item={clip}
-            selected={selected === clip.id}
+            selected={isSel.has(clip.id)}
+            primary={selected === clip.id}
             getZoom={getZoom}
-            onSelect={onSelect}
+            onPointerSelect={onPointerSelect}
             onMoveEnd={onClipMoveEnd}
             onResizeEnd={onClipResizeEnd}
             onContextMenu={onCtxItem}
@@ -267,9 +308,10 @@ export default function Board({
           <MusicView
             key={item.id}
             item={item}
-            selected={selected === item.id}
+            selected={isSel.has(item.id)}
+            primary={selected === item.id}
             getZoom={getZoom}
-            onSelect={onSelect}
+            onPointerSelect={onPointerSelect}
             onMoveEnd={onMusicMoveEnd}
             onResizeEnd={onMusicResizeEnd}
             onContextMenu={onCtxItem}
@@ -280,9 +322,10 @@ export default function Board({
           <CardView
             key={card.id}
             item={card}
-            selected={selected === card.id}
+            selected={isSel.has(card.id)}
+            primary={selected === card.id}
             getZoom={getZoom}
-            onSelect={onSelect}
+            onPointerSelect={onPointerSelect}
             onMoveEnd={onCardMoveEnd}
             onResizeEnd={onCardResizeEnd}
             onOpen={onOpenCard}
@@ -294,9 +337,10 @@ export default function Board({
           <PinView
             key={pin.id}
             item={pin}
-            selected={selected === pin.id}
+            selected={isSel.has(pin.id)}
+            primary={selected === pin.id}
             getZoom={getZoom}
-            onSelect={onSelect}
+            onPointerSelect={onPointerSelect}
             onMoveEnd={onPinMoveEnd}
             onEditLocation={onEditLocation}
             onResizeLocation={onResizeLocation}
@@ -304,6 +348,17 @@ export default function Board({
           />
         ))}
       </div>
+      {marquee && (
+        <div
+          className="marquee"
+          style={{
+            left: Math.min(marquee.x0, marquee.x1),
+            top: Math.min(marquee.y0, marquee.y1),
+            width: Math.abs(marquee.x1 - marquee.x0),
+            height: Math.abs(marquee.y1 - marquee.y0),
+          }}
+        />
+      )}
       </div>
     </div>
   )

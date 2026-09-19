@@ -2,6 +2,7 @@ import React, { memo, useEffect, useRef } from 'react'
 import { PushPin } from './art.jsx'
 import { NOTE_COLORS } from './store.js'
 import { updateRopesForNote } from './ropes.js'
+import { pointerSelect, startGroupDrag } from './drag.js'
 import { connText, connType } from './connections.js'
 
 function noteTitle(n) {
@@ -12,8 +13,8 @@ function noteTitle(n) {
 
 export default memo(function NoteView({
   item, x, y, scale = 1, rotation, tick,
-  selected, mode, getZoom, linkSource, connections,
-  onSelect, onChange, onLiveHeight, onMoveEnd, onDrop, onDragMove, onContextMenu, z,
+  selected, primary, mode, getZoom, linkSource, connections,
+  onPointerSelect, onChange, onLiveHeight, onMoveEnd, onDrop, onDragMove, onContextMenu, z,
   onAddClip, onLinkClick, onOpenLink,
 }) {
   const wrapRef = useRef(null)
@@ -100,9 +101,11 @@ export default memo(function NoteView({
       onLinkClick(item.id)
       return
     }
+    const res = onPointerSelect(item.id, e)
     e.preventDefault()
     e.stopPropagation()
-    onSelect(item.id)
+    if (!res.drag) return
+    if (res.group && mode !== 'fan') { startGroupDrag(e, getZoom, item.id); return }
     const scale = getZoom()
     const start = { sx: e.clientX, sy: e.clientY, x, y }
     const movedRef = { moved: false, x, y }
@@ -133,10 +136,7 @@ export default memo(function NoteView({
       const d = drag.current
       drag.current = null
       if (!d) return
-      if (!d.moved) {
-        onSelect(item.id)
-        return
-      }
+      if (!d.moved) return
       if (mode === 'fan') {
         onDrop(item.id, d.x, d.y)
       } else {
@@ -298,7 +298,7 @@ export default memo(function NoteView({
         className="scale-layer"
         style={{ width: item.w, transform: scale === 1 ? undefined : `scale(${scale})`, transformOrigin: '0 0' }}
       >
-        <div ref={paperRef} className="note-paper note-paper-colored" style={{ width: item.w, minHeight: item.sh || item.h || 300, background: color }} onPointerDown={(e) => { e.stopPropagation(); if (mode === 'link' && onLinkClick) { e.preventDefault(); onLinkClick(item.id); return } onSelect(item.id) }}>
+        <div ref={paperRef} className="note-paper note-paper-colored" style={{ width: item.w, minHeight: item.sh || item.h || 300, background: color }} onPointerDown={(e) => { e.stopPropagation(); if (mode === 'link' && onLinkClick) { e.preventDefault(); onLinkClick(item.id); return } const res = onPointerSelect(item.id, e); if (res.drag && res.group) startGroupDrag(e, getZoom, item.id) }}>
           <div
             ref={edRef}
             className="note-ed"
@@ -322,10 +322,10 @@ export default memo(function NoteView({
           <div className="note-drag-edge note-drag-edge-right" onPointerDown={startDrag} />
           <div className="note-drag-edge note-drag-edge-bottom" onPointerDown={startDrag} />
           <div className="note-drag-edge note-drag-edge-left" onPointerDown={startDrag} />
-          <div className="note-pin-handle" onPointerDown={startDrag} onClick={(e) => { e.stopPropagation(); if (mode === 'link') return; onSelect(item.id) }}>
+          <div className="note-pin-handle" onPointerDown={startDrag} onClick={(e) => e.stopPropagation()}>
             <PushPin color="#e95d5d" size={Math.max(26, 34)} />
           </div>
-          {selected && mode !== 'fan' && (
+          {primary && mode !== 'fan' && (
             <div className="note-formatbar" onMouseDown={(e) => {
               rememberSelection()
               if (e.target.tagName !== 'SELECT') e.preventDefault()
@@ -356,7 +356,7 @@ export default memo(function NoteView({
               <button title="Clear formatting" onClick={() => format('removeFormat')}>Tx</button>
             </div>
           )}
-          {selected && mode !== 'fan' && connections && (connections.from.length > 0 || connections.to.length > 0) && (
+          {primary && mode !== 'fan' && connections && (connections.from.length > 0 || connections.to.length > 0) && (
             <div className="note-links" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
               {connections.from.length > 0 && (
                 <>
@@ -386,7 +386,7 @@ export default memo(function NoteView({
               )}
             </div>
           )}
-          {selected && mode !== 'fan' && (
+          {primary && mode !== 'fan' && (
             <div className="note-resize">
               <div className="resize-nw" onPointerDown={(e) => startResize(e, 'nw')} />
               <div className="resize-ne" onPointerDown={(e) => startResize(e, 'ne')} />

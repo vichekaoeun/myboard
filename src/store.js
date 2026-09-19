@@ -86,6 +86,7 @@ function defaultState() {
     envelopes: [],
     links: [],
     selected: null,
+    selectedIds: [],
     mode: 'move',
   }
 }
@@ -137,6 +138,7 @@ function hydrate(saved) {
         envelopes: saved.envelopes || [],
         links: Array.isArray(saved.links) ? saved.links : [],
         selected: null,
+        selectedIds: [],
         view: { ...base.view, ...(saved.view || {}) },
       }
     : base
@@ -340,7 +342,7 @@ export function undo() {
   if (!history.length) return
   redo.push(state)
   state = history.pop()
-  state = { ...state, selected: null }
+  state = { ...state, selected: null, selectedIds: [] }
   emit()
   scheduleSave()
 }
@@ -349,7 +351,7 @@ export function redoFn() {
   if (!redo.length) return
   history.push(state)
   state = redo.pop()
-  state = { ...state, selected: null }
+  state = { ...state, selected: null, selectedIds: [] }
   emit()
   scheduleSave()
 }
@@ -369,9 +371,39 @@ export function setView(view) {
   emit()
 }
 
+// Selection: `selectedIds` is the set of highlighted items; `selected` is the
+// "primary" (last-clicked) one used for the format bar, backlinks, etc.
 export function select(id) {
-  if (state.selected === id) return
-  state = { ...state, selected: id }
+  const next = id ? [id] : []
+  const cur = state.selectedIds || []
+  if (state.selected === (id || null) && cur.length === next.length && cur.every((x, i) => x === next[i])) return
+  state = { ...state, selected: id || null, selectedIds: next }
+  emit()
+}
+
+export function toggleSelect(id) {
+  const cur = state.selectedIds || []
+  const has = cur.includes(id)
+  const next = has ? cur.filter((x) => x !== id) : [...cur, id]
+  state = {
+    ...state,
+    selectedIds: next,
+    selected: has ? (next.length ? next[next.length - 1] : null) : id,
+  }
+  emit()
+}
+
+export function selectMany(ids) {
+  const next = [...new Set(ids)]
+  const cur = state.selectedIds || []
+  if (cur.length === next.length && cur.every((x, i) => x === next[i])) return
+  state = { ...state, selectedIds: next, selected: next.length ? next[next.length - 1] : null }
+  emit()
+}
+
+export function clearSelection() {
+  if ((state.selectedIds || []).length === 0 && !state.selected) return
+  state = { ...state, selected: null, selectedIds: [] }
   emit()
 }
 
@@ -398,26 +430,26 @@ export function addNote(x, y, text = '', color = 'white') {
   }
   const p = clampToCork(note.x, note.y, note.w, note.h)
   note.x = p.x; note.y = p.y
-  mutate((s) => ({ ...s, notes: [...s.notes, note], selected: note.id, mode: 'move' }))
+  mutate((s) => ({ ...s, notes: [...s.notes, note], selected: note.id, selectedIds: [note.id], mode: 'move' }))
   return note
 }
 
 export function addPin(x, y, color) {
   const colors = ['#d64545', '#3a7bd5', '#f2b632', '#3aa655', '#8a6dc9']
   const pin = { id: uid(), x, y, color: color || colors[Math.floor(Math.random() * colors.length)], location: null }
-  mutate((s) => ({ ...s, pins: [...s.pins, pin], selected: pin.id, mode: 'move' }))
+  mutate((s) => ({ ...s, pins: [...s.pins, pin], selected: pin.id, selectedIds: [pin.id], mode: 'move' }))
   return pin
 }
 
 export function addClip(url, x, y) {
   const clip = { id: uid(), x, y, w: 220, h: 180, url, rotation: Math.random() * 4 - 2 }
-  mutate((s) => ({ ...s, clips: [...s.clips, clip], selected: clip.id, mode: 'move' }))
+  mutate((s) => ({ ...s, clips: [...s.clips, clip], selected: clip.id, selectedIds: [clip.id], mode: 'move' }))
   return clip
 }
 
 export function addMusic(url, x, y, title) {
   const music = { id: uid(), x, y, w: 320, h: 180, url, title: title || 'Untitled mixtape' }
-  mutate((s) => ({ ...s, music: [...s.music, music], selected: music.id, mode: 'move' }))
+  mutate((s) => ({ ...s, music: [...s.music, music], selected: music.id, selectedIds: [music.id], mode: 'move' }))
   return music
 }
 
@@ -429,13 +461,13 @@ export function addCard(x, y, preview) {
     image: preview.image || '', favicon: preview.favicon || '', siteName: preview.siteName || '',
     rotation: Math.random() * 3 - 1.5,
   }
-  mutate((s) => ({ ...s, cards: [...s.cards, card], selected: card.id, mode: 'move' }))
+  mutate((s) => ({ ...s, cards: [...s.cards, card], selected: card.id, selectedIds: [card.id], mode: 'move' }))
   return card
 }
 
 export function addEnvelope(x, y) {
   const env = { id: uid(), x: x - 150, y: y - 105, w: 300, h: 210, title: 'My letters', noteIds: [], expanded: false }
-  mutate((s) => ({ ...s, envelopes: [...s.envelopes, env], selected: env.id, mode: 'move' }))
+  mutate((s) => ({ ...s, envelopes: [...s.envelopes, env], selected: env.id, selectedIds: [env.id], mode: 'move' }))
   return env
 }
 
@@ -636,7 +668,8 @@ export function deleteItem(id) {
         music,
         cards,
         links,
-        selected: null,
+        selected: s.selected === id ? null : s.selected,
+        selectedIds: (s.selectedIds || []).filter((x) => x !== id),
       }
     }
     const note = s.notes.find((n) => n.id === id)
@@ -656,7 +689,8 @@ export function deleteItem(id) {
               : e
           )
         : s.envelopes,
-      selected: null,
+      selected: s.selected === id ? null : s.selected,
+      selectedIds: (s.selectedIds || []).filter((x) => x !== id),
     }
   })
 }
@@ -667,39 +701,144 @@ export function duplicateItem(id) {
     const found = notes.find((n) => n.id === id)
     if (found) {
       const copy = { ...found, id: uid(), x: found.x + 26, y: found.y + 26, groupId: null }
-      return { ...s, notes: [...notes, copy], selected: copy.id }
+      return { ...s, notes: [...notes, copy], selected: copy.id, selectedIds: [copy.id] }
     }
     const env = envelopes.find((e) => e.id === id)
     if (env) {
       const copy = { ...env, id: uid(), x: env.x + 26, y: env.y + 26, noteIds: [], expanded: false, title: env.title + ' (copy)' }
-      return { ...s, envelopes: [...envelopes, copy], selected: copy.id }
+      return { ...s, envelopes: [...envelopes, copy], selected: copy.id, selectedIds: [copy.id] }
     }
     const pin = pins.find((p) => p.id === id)
     if (pin) {
       const copy = { ...pin, id: uid(), x: pin.x + 26, y: pin.y + 26 }
-      return { ...s, pins: [...pins, copy], selected: copy.id }
+      return { ...s, pins: [...pins, copy], selected: copy.id, selectedIds: [copy.id] }
     }
     const clip = s.clips.find((c) => c.id === id)
     if (clip) {
       const copy = { ...clip, id: uid(), x: clip.x + 26, y: clip.y + 26 }
-      return { ...s, clips: [...s.clips, copy], selected: copy.id }
+      return { ...s, clips: [...s.clips, copy], selected: copy.id, selectedIds: [copy.id] }
     }
     const music = s.music.find((m) => m.id === id)
     if (music) {
       const copy = { ...music, id: uid(), x: music.x + 26, y: music.y + 26 }
-      return { ...s, music: [...s.music, copy], selected: copy.id }
+      return { ...s, music: [...s.music, copy], selected: copy.id, selectedIds: [copy.id] }
     }
     const card = (s.cards || []).find((c) => c.id === id)
     if (card) {
       const copy = { ...card, id: uid(), x: card.x + 26, y: card.y + 26 }
-      return { ...s, cards: [...s.cards, copy], selected: copy.id }
+      return { ...s, cards: [...s.cards, copy], selected: copy.id, selectedIds: [copy.id] }
     }
     return s
   })
 }
 
 export function clearBoard() {
-  mutate((s) => ({ ...s, notes: [], pins: [], clips: [], music: [], cards: [], envelopes: [], links: [], selected: null }))
+  mutate((s) => ({ ...s, notes: [], pins: [], clips: [], music: [], cards: [], envelopes: [], links: [], selected: null, selectedIds: [] }))
+}
+
+// ---- multi-select operations -------------------------------------------------
+
+function selectionIds() {
+  const ids = state.selectedIds || []
+  if (ids.length) return ids
+  return state.selected ? [state.selected] : []
+}
+
+// Move every selected item by a delta (used by group drag).
+export function moveItems(dx, dy) {
+  const ids = selectionIds()
+  if (!ids.length || (!dx && !dy)) return
+  mutate((s) => {
+    const set = new Set(ids)
+    return {
+      ...s,
+      notes: s.notes.map((n) => {
+        if (!set.has(n.id)) return n
+        const p = clampToCork(n.x + dx, n.y + dy, n.w || 250, n.h || 300)
+        return { ...n, x: p.x, y: p.y }
+      }),
+      pins: s.pins.map((p) => {
+        if (!set.has(p.id)) return p
+        const c = clampToCork(p.x - 20 + dx, p.y - 60 + dy, 40, 80)
+        return { ...p, x: c.x + 20, y: c.y + 60 }
+      }),
+      clips: s.clips.map((c) => {
+        if (!set.has(c.id)) return c
+        const p = clampToCork(c.x + dx, c.y + dy, c.w, c.h)
+        return { ...c, x: p.x, y: p.y }
+      }),
+      music: s.music.map((m) => {
+        if (!set.has(m.id)) return m
+        const p = clampToCork(m.x + dx, m.y + dy, m.w, m.h)
+        return { ...m, x: p.x, y: p.y }
+      }),
+      cards: (s.cards || []).map((c) => {
+        if (!set.has(c.id)) return c
+        const p = clampToCork(c.x + dx, c.y + dy, c.w, c.h)
+        return { ...c, x: p.x, y: p.y }
+      }),
+      envelopes: s.envelopes.map((e) => {
+        if (!set.has(e.id)) return e
+        const p = clampToCork(e.x + dx, e.y + dy, e.w, e.h)
+        return { ...e, x: p.x, y: p.y }
+      }),
+    }
+  })
+}
+
+export function deleteSelection() {
+  const ids = selectionIds()
+  if (!ids.length) return
+  const set = new Set(ids)
+  mutate((s) => ({
+    ...s,
+    notes: s.notes.filter((n) => !set.has(n.id)),
+    pins: s.pins.filter((p) => !set.has(p.id)),
+    clips: s.clips.filter((c) => !set.has(c.id)),
+    music: s.music.filter((m) => !set.has(m.id)),
+    cards: (s.cards || []).filter((c) => !set.has(c.id)),
+    links: (s.links || []).filter((l) => !set.has(l.from) && !set.has(l.to)),
+    envelopes: s.envelopes
+      .filter((e) => !set.has(e.id))
+      .map((e) => {
+        const nids = e.noteIds.filter((nid) => !set.has(nid))
+        return nids.length !== e.noteIds.length ? { ...e, noteIds: nids, expanded: nids.length > 1 } : e
+      }),
+    selected: null,
+    selectedIds: [],
+  }))
+}
+
+export function duplicateSelection() {
+  const ids = selectionIds()
+  if (!ids.length) return
+  const set = new Set(ids)
+  mutate((s) => {
+    const newIds = []
+    const notes = [...s.notes]
+    s.notes.filter((n) => set.has(n.id)).forEach((n) => {
+      const c = { ...n, id: uid(), x: n.x + 26, y: n.y + 26, groupId: null }
+      notes.push(c); newIds.push(c.id)
+    })
+    const pins = [...s.pins]
+    s.pins.filter((p) => set.has(p.id)).forEach((p) => { const c = { ...p, id: uid(), x: p.x + 26, y: p.y + 26 }; pins.push(c); newIds.push(c.id) })
+    const clips = [...s.clips]
+    s.clips.filter((x) => set.has(x.id)).forEach((x) => { const c = { ...x, id: uid(), x: x.x + 26, y: x.y + 26 }; clips.push(c); newIds.push(c.id) })
+    const music = [...s.music]
+    s.music.filter((x) => set.has(x.id)).forEach((x) => { const c = { ...x, id: uid(), x: x.x + 26, y: x.y + 26 }; music.push(c); newIds.push(c.id) })
+    const cards = [...(s.cards || [])]
+    ;(s.cards || []).filter((x) => set.has(x.id)).forEach((x) => { const c = { ...x, id: uid(), x: x.x + 26, y: x.y + 26 }; cards.push(c); newIds.push(c.id) })
+    const envelopes = [...s.envelopes]
+    s.envelopes.filter((x) => set.has(x.id)).forEach((x) => {
+      const c = { ...x, id: uid(), x: x.x + 26, y: x.y + 26, noteIds: [], expanded: false, title: x.title + ' (copy)' }
+      envelopes.push(c); newIds.push(c.id)
+    })
+    return {
+      ...s, notes, pins, clips, music, cards, envelopes,
+      selected: newIds.length ? newIds[newIds.length - 1] : null,
+      selectedIds: newIds,
+    }
+  })
 }
 
 export function importState(data) {
@@ -709,6 +848,7 @@ export function importState(data) {
     ...data,
     view: { ...base.view, ...(data.view || {}) },
     selected: null,
+    selectedIds: [],
     mode: 'move',
     notes: (data.notes || []).map((n) => ({
       ...n,
@@ -762,7 +902,7 @@ export function importState(data) {
 }
 
 export function exportData() {
-  return JSON.stringify({ ...state, mode: 'move', selected: null }, null, 1)
+  return JSON.stringify({ ...state, mode: 'move', selected: null, selectedIds: [] }, null, 1)
 }
 
 // ---- cloud sync (Cloudflare Worker API) -------------------------------------

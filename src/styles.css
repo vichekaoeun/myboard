@@ -602,6 +602,16 @@ body {
 .board.linking .note-drag-edge,
 .board.linking .note-pin-handle { cursor: crosshair; }
 
+/* rubber-band selection */
+.marquee {
+  position: absolute;
+  z-index: 150;
+  border: 1.5px solid rgba(232, 163, 61, 0.9);
+  background: rgba(232, 163, 61, 0.14);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
 .note-link-source .note-paper {
   box-shadow:
     0 0 0 3px rgba(214, 52, 60, 0.85),

@@ -1,17 +1,20 @@
 import React, { memo, useRef } from 'react'
+import { pointerSelect, startGroupDrag } from './drag.js'
 
 // A saved link rendered as a newspaper clipping pinned to the cork.
 export default memo(function CardView({
-  item, selected, getZoom, onSelect, onMoveEnd, onResizeEnd, onOpen, onContextMenu,
+  item, selected, primary, getZoom, onPointerSelect, onMoveEnd, onResizeEnd, onOpen, onContextMenu,
 }) {
   const wrapRef = useRef(null)
   const drag = useRef(null)
 
   function startDrag(e) {
     if (e.button !== undefined && e.button !== 0) return
+    const res = onPointerSelect(item.id, e)
     e.preventDefault()
     e.stopPropagation()
-    onSelect(item.id)
+    if (!res.drag) return
+    if (res.group) { startGroupDrag(e, getZoom, item.id); return }
     const start = { sx: e.clientX, sy: e.clientY, x: item.x, y: item.y }
     const state = { moved: false, x: item.x, y: item.y }
     drag.current = state
@@ -143,7 +146,7 @@ export default memo(function CardView({
         <div className="link-card-foot"><span className="link-card-read">Read article ↗</span></div>
       </div>
 
-      {selected && (
+      {primary && (
         <div className="link-card-resize">
           <div className="resize-nw" onPointerDown={(e) => startResize(e, 'nw')} />
           <div className="resize-ne" onPointerDown={(e) => startResize(e, 'ne')} />

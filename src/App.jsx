@@ -9,6 +9,7 @@ import {
   PinIcon, RedoIcon, SearchIcon, SignOutIcon, UndoIcon, ZoomInIcon, ZoomOutIcon,
 } from './icons.jsx'
 import * as store from './store.js'
+import { pointerSelect } from './drag.js'
 import { CONNECTION_ORDER, CONNECTION_TYPES } from './connections.js'
 import { apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink } from './api.js'
 
@@ -553,6 +554,17 @@ export default function App() {
 
   // ---- ctx menu items ---------------------------------------------------------
 
+  const batchDuplicate = (id) => {
+    const ids = store.getState().selectedIds || []
+    if (ids.length > 1 && ids.includes(id)) store.duplicateSelection()
+    else store.duplicateItem(id)
+  }
+  const batchDelete = (id) => {
+    const ids = store.getState().selectedIds || []
+    if (ids.length > 1 && ids.includes(id)) store.deleteSelection()
+    else store.deleteItem(id)
+  }
+
   const ctxActions = (() => {
     if (!ctx) return []
     const base = []
@@ -563,25 +575,25 @@ export default function App() {
       base.push({ label: 'Fit everything in view', icon: '◱', run: fitView })
     } else if (ctx.kind === 'note') {
       const it = ctx.item
-      base.push({ label: 'Duplicate', icon: '❐', run: () => store.duplicateItem(it.id) })
+      base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(it.id) })
       base.push({ label: 'Take out of envelope', icon: '⌧', run: () => store.detachNote(it.id), show: !!it.groupId })
-      base.push({ label: 'Delete note', icon: '×', run: () => store.deleteItem(it.id), danger: true })
+      base.push({ label: 'Delete note', icon: '×', run: () => batchDelete(it.id), danger: true })
     } else if (ctx.kind === 'env') {
       const it = ctx.item
       base.push({ label: it.expanded ? 'Tuck letters back in' : 'Open envelope', icon: '✉', run: () => store.toggleEnvelope(it.id) })
-      base.push({ label: 'Duplicate', icon: '❐', run: () => store.duplicateItem(it.id) })
-      base.push({ label: 'Delete envelope', icon: '×', run: () => store.deleteItem(it.id), danger: true })
+      base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(it.id) })
+      base.push({ label: 'Delete envelope', icon: '×', run: () => batchDelete(it.id), danger: true })
     } else if (ctx.kind === 'pin') {
       base.push({ label: 'Edit location', icon: '⌖', run: () => handleEditLocation(ctx.item) })
-      base.push({ label: 'Duplicate', icon: '❐', run: () => store.duplicateItem(ctx.item.id) })
-      base.push({ label: 'Delete pin', icon: '×', run: () => store.deleteItem(ctx.item.id), danger: true })
+      base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(ctx.item.id) })
+      base.push({ label: 'Delete pin', icon: '×', run: () => batchDelete(ctx.item.id), danger: true })
     } else if (ctx.kind === 'clip') {
-      base.push({ label: 'Duplicate', icon: '❐', run: () => store.duplicateItem(ctx.item.id) })
-      base.push({ label: 'Delete clip', icon: '×', run: () => store.deleteItem(ctx.item.id), danger: true })
+      base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(ctx.item.id) })
+      base.push({ label: 'Delete clip', icon: '×', run: () => batchDelete(ctx.item.id), danger: true })
     } else if (ctx.kind === 'music') {
       base.push({ label: 'Edit cassette', icon: '✎', run: () => handleEditMusic(ctx.item) })
-      base.push({ label: 'Duplicate', icon: '❐', run: () => store.duplicateItem(ctx.item.id) })
-      base.push({ label: 'Delete cassette', icon: '×', run: () => store.deleteItem(ctx.item.id), danger: true })
+      base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(ctx.item.id) })
+      base.push({ label: 'Delete cassette', icon: '×', run: () => batchDelete(ctx.item.id), danger: true })
     } else if (ctx.kind === 'link') {
       const it = ctx.item
       base.push({ label: 'Edit label…', icon: '✎', run: () => {
@@ -595,8 +607,8 @@ export default function App() {
       base.push({ label: 'Open link', icon: '↗', run: () => handleOpenCard(it) })
       base.push({ label: 'Copy link', icon: '⧉', run: () => { if (navigator.clipboard) navigator.clipboard.writeText(it.url); say('Link copied') } })
       base.push({ label: 'Refresh preview', icon: '⟳', run: () => refreshCard(it) })
-      base.push({ label: 'Duplicate', icon: '❐', run: () => store.duplicateItem(it.id) })
-      base.push({ label: 'Delete card', icon: '×', run: () => store.deleteItem(it.id), danger: true })
+      base.push({ label: 'Duplicate', icon: '❐', run: () => batchDuplicate(it.id) })
+      base.push({ label: 'Delete card', icon: '×', run: () => batchDelete(it.id), danger: true })
     }
     return base.filter((a) => a.show !== false)
   })()
@@ -641,9 +653,8 @@ export default function App() {
 
   const copySelected = useCallback(() => {
     const st = store.getState()
-    const id = st.selected
-    if (!id) return
-    store.duplicateItem(id)
+    if (!(st.selectedIds || []).length && !st.selected) return
+    store.duplicateSelection()
     say('Duplicated')
   }, [say])
 
@@ -653,7 +664,15 @@ export default function App() {
     const onKey = (e) => {
       const el = document.activeElement
       const editing = el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')
-      if (editing) return
+      if (editing) {
+        // While typing, Delete only removes a multi-selection; otherwise it's a
+        // normal text delete.
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          const st = store.getState()
+          if ((st.selectedIds || []).length > 1) { e.preventDefault(); store.deleteSelection() }
+        }
+        return
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         if (e.shiftKey) store.redoFn()
@@ -670,8 +689,8 @@ export default function App() {
         return
       }
       if (k === 'Delete' || k === 'Backspace') {
-        const s = store.getState().selected
-        if (s) { e.preventDefault(); store.deleteItem(s) }
+        const st = store.getState()
+        if ((st.selectedIds || []).length || st.selected) { e.preventDefault(); store.deleteSelection() }
         return
       }
       if (k === '?') { setHelp(true); return }
@@ -686,8 +705,10 @@ export default function App() {
       const toolMap = { '1': 'move', '2': 'note', '3': 'pin', '4': 'envelope', '5': 'link', m: 'move', n: 'note', p: 'pin', e: 'envelope', l: 'link' }
       if (toolMap[key]) store.setMode(toolMap[key])
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    // Capture phase so shortcuts still work when a note editor (which stops
+    // propagation on keydown) has focus.
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [ctx, linkFrom, moreOpen, handleAddCard, copySelected, fitView])
 
   // obey no-emoji-ish default but these are handy: keep simple text icons above
@@ -718,9 +739,12 @@ export default function App() {
         connections={connections}
         linkFrom={linkFrom}
         selected={state.selected}
+        selectedIds={state.selectedIds || []}
         mode={state.mode}
         tick={flip}
         onSelect={handleSelect}
+        onPointerSelect={pointerSelect}
+        onSelectMany={store.selectMany}
         onLinkClick={handleLinkClick}
         onOpenLink={handleOpenLink}
         onCtxLink={handleCtxLink}
@@ -1052,6 +1076,9 @@ function HelpDialog({ onClose, onFit, onExport }) {
               <li>Wheel / two-finger scroll — <b>pan</b></li>
               <li>Ctrl or Cmd + wheel — <b>zoom</b></li>
               <li>Drag empty cork — <b>pan</b></li>
+              <li>Ctrl/Cmd + drag cork — <b>marquee select</b></li>
+              <li>Ctrl/Cmd + click items — <b>multi-select</b></li>
+              <li>Drag any selected item — moves the <b>whole selection</b></li>
               <li>Double-click empty board — <b>new note</b></li>
               <li><b>Fit</b> button or “◱” — zoom to everything</li>
             </ul>
