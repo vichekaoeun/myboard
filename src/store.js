@@ -1094,7 +1094,7 @@ export function exportData() {
 // mirrors it for cross-device sync.
 
 const CLOUD_PUSH_MS = 800
-const SHARE_POLL_MS = 4000
+const SHARE_POLL_MS = 2000
 let cloudTimer = null
 let cloudPushBusy = false
 let cloudSubReady = false
@@ -1219,14 +1219,30 @@ function applyRemote(rawPayload) {
 
 export async function stopCloud() {
   cloudSubReady = false
-  if (sharePollTimer) {
-    clearInterval(sharePollTimer)
-    sharePollTimer = null
-  }
+  stopSharePoll()
   if (apiSocketClose) {
     try { apiSocketClose() } catch (e) {}
     apiSocketClose = null
   }
+}
+
+// Shared-board fallback poll: the WebSocket is instant when it works, but a
+// viewer must never be stranded on stale content. Poll every couple of seconds
+// while the tab is visible, and pull once immediately when it becomes visible.
+function sharePollTick() {
+  if (typeof document !== 'undefined' && document.hidden) return
+  pullCloud()
+}
+
+function stopSharePoll() {
+  if (sharePollTimer) { clearInterval(sharePollTimer); sharePollTimer = null }
+  if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', sharePollTick)
+}
+
+function startSharePoll() {
+  stopSharePoll()
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', sharePollTick)
+  sharePollTimer = setInterval(sharePollTick, SHARE_POLL_MS)
 }
 
 export async function startCloud() {
@@ -1236,12 +1252,8 @@ export async function startCloud() {
     ? apiOpenShareSocket(sharedToken, () => { pullCloud() })
     : apiOpenSocket(() => { pullCloud() })
   cloudSubReady = true
-  // Shared links also poll: viewers on flaky networks (or behind proxies that
-  // drop WebSockets) must never be stuck on a stale board.
-  if (sharedToken) {
-    clearInterval(sharePollTimer)
-    sharePollTimer = setInterval(() => { pullCloud() }, SHARE_POLL_MS)
-  }
+  // A shared viewer also polls, so live updates survive a dropped socket.
+  if (sharedToken) startSharePoll()
 }
 
 // One-shot pull of the current board. Returns true when a remote board existed.
