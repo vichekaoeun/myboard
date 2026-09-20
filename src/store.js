@@ -1,8 +1,8 @@
 // ---- Persistence / state store for SimpleBoard -------------------------------
 
 import {
-  apiCreateBoard, apiDeleteBoard, apiGetBoard, apiListBoards,
-  apiOpenSocket, apiPutBoard, apiRenameBoard,
+  apiCreateBoard, apiDeleteBoard, apiGetBoard, apiGetShare, apiListBoards,
+  apiOpenShareSocket, apiOpenSocket, apiPutBoard, apiPutShare, apiRenameBoard,
 } from './api.js'
 
 const DB_NAME = 'myboard'
@@ -248,6 +248,8 @@ async function loadBoardContent(id) {
 // the most recently used one.
 export async function loadBoard(userId) {
   currentUserId = userId || null
+  sharedToken = null
+  sharedMode = 'view'
   setCloudUser(currentUserId)
   let list = []
   if (currentUserId) {
@@ -276,6 +278,8 @@ export async function loadBoard(userId) {
 // Switch to another board of the same account.
 export async function openBoard(id) {
   if (!id || id === boardRowId) return { fresh: false }
+  sharedToken = null
+  sharedMode = 'view'
   saveNow()
   const loaded = await loadBoardContent(id)
   const meta = boards.find((b) => b.id === id)
@@ -306,6 +310,15 @@ export async function renameBoard(id, name) {
   emit()
 }
 
+// Record a board's share link in the local board list (so the gallery can show
+// a "shared" badge without a refetch).
+export function setBoardShare(id, shareToken, shareMode) {
+  boards = boards.map((b) => (b.id === id ? { ...b, shareToken, shareMode } : b))
+  state = { ...state, boards }
+  snapshot = state
+  emit()
+}
+
 export async function deleteBoard(id) {
   const res = await apiDeleteBoard(id)
   if (res && res.error) return
@@ -321,11 +334,46 @@ export async function deleteBoard(id) {
   }
 }
 
+// Open a board through a public share link (no account required). The board is
+// fetched live and cached locally so a reload works offline. View links are
+// read-only; edit links push changes back through the share endpoint.
+export async function loadShared(token) {
+  const res = await apiGetShare(token)
+  if (!res || res.error) return { error: (res && res.error) || { message: 'Not found' } }
+  currentUserId = null
+  boards = []
+  boardRowId = null
+  sharedToken = token
+  sharedMode = res.mode === 'edit' ? 'edit' : 'view'
+  await applyKey(`share:${token}`)
+  let parsed = null
+  try { parsed = JSON.parse(res.payload) } catch (e) { parsed = null }
+  if (parsed && Array.isArray(parsed.notes)) {
+    const merged = hydrate(parsed)
+    state = merged
+    snapshot = merged
+  }
+  state = { ...state, boardId: res.id, boardName: res.name || 'Shared board', boards: [] }
+  snapshot = state
+  history.length = 0
+  redo.length = 0
+  localVersion = 0
+  pushedVersion = 0
+  cloudUser = 'share:' + token
+  cloudEnabled = true
+  stopCloud()
+  startCloud()
+  emit()
+  return { ok: true, mode: sharedMode, name: res.name || 'Shared board' }
+}
+
 // Leave the current board (sign-out): stop syncing and blank the canvas.
 export function resetBoard() {
   currentUserId = null
   boards = []
   boardRowId = null
+  sharedToken = null
+  sharedMode = 'view'
   setCloudUser(null)
   storageKey = DB_KEY
   state = defaultState()
@@ -1040,6 +1088,18 @@ let cloudEnabled = false
 let cloudUser = null
 let boardRowId = null
 let apiSocketClose = null
+// When set, the store is viewing a board through a public share link rather
+// than the owner's account. `sharedMode` is 'view' (read-only) or 'edit'.
+let sharedToken = null
+let sharedMode = 'view'
+
+export function isShared() {
+  return !!sharedToken
+}
+
+export function getShareMode() {
+  return sharedMode
+}
 
 export function hasCloud() {
   return true
@@ -1069,13 +1129,17 @@ function cloudPayload() {
 }
 
 export async function pushNow() {
-  if (!cloudEnabled || !boardRowId || cloudPushBusy) return
+  if (!cloudEnabled || cloudPushBusy) return
+  if (!sharedToken && !boardRowId) return
+  if (sharedToken && sharedMode !== 'edit') return
   const version = localVersion
   cloudPushBusy = true
   clearTimeout(cloudTimer)
   cloudTimer = null
   try {
-    const res = await apiPutBoard(boardRowId, cloudPayload())
+    const res = sharedToken
+      ? await apiPutShare(sharedToken, cloudPayload())
+      : await apiPutBoard(boardRowId, cloudPayload())
     if (res && res.error) {
       console.warn('board sync: push failed', res.error.message)
     } else if (version > pushedVersion) {
@@ -1087,7 +1151,8 @@ export async function pushNow() {
 }
 
 export function pushSoon() {
-  if (!cloudEnabled || !boardRowId) return
+  if (!cloudEnabled || (!boardRowId && !sharedToken)) return
+  if (sharedToken && sharedMode !== 'edit') return
   clearTimeout(cloudTimer)
   cloudTimer = setTimeout(pushNow, CLOUD_PUSH_MS)
 }
@@ -1143,18 +1208,21 @@ export async function stopCloud() {
 export async function startCloud() {
   if (!cloudEnabled || cloudSubReady) return
   // Realtime: the Worker pings us, and we re-pull the current board.
-  apiSocketClose = apiOpenSocket(() => { pullCloud() })
+  apiSocketClose = sharedToken
+    ? apiOpenShareSocket(sharedToken, () => { pullCloud() })
+    : apiOpenSocket(() => { pullCloud() })
   cloudSubReady = true
 }
 
 // One-shot pull of the current board. Returns true when a remote board existed.
 export async function pullCloud() {
-  if (!cloudEnabled || !boardRowId) return false
+  if (!cloudEnabled) return false
+  if (!sharedToken && !boardRowId) return false
   // Don't overwrite local edits that haven't been pushed yet. Our own pushes
   // also trigger realtime pings, so applying a stale remote here would clobber
   // newer local state (e.g. a freshly seeded board).
   if (isDirty()) return false
-  const res = await apiGetBoard(boardRowId)
+  const res = sharedToken ? await apiGetShare(sharedToken) : await apiGetBoard(boardRowId)
   if (res && res.error) {
     console.warn('board sync: pull failed', res.error.message)
     return false

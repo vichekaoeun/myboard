@@ -11,7 +11,7 @@ import {
 import * as store from './store.js'
 import { pointerSelect } from './drag.js'
 import { CONNECTION_ORDER, CONNECTION_TYPES } from './connections.js'
-import { apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink } from './api.js'
+import { apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, apiRevokeShare, apiSetShare } from './api.js'
 
 const TOOLS = [
   { id: 'move', label: 'Move', icon: MoveIcon },
@@ -44,6 +44,7 @@ export default function App() {
   const [moreOpen, setMoreOpen] = useState(false)
   const [boardsOpen, setBoardsOpen] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
+  const [shareBoard, setShareBoard] = useState(null)
   const [hoverEnvId, setHoverEnvId] = useState(null)
   const [ctx, setCtx] = useState(null)
   const [help, setHelp] = useState(false)
@@ -62,6 +63,20 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false)
   const [boardReady, setBoardReady] = useState(false)
   const loadedUserRef = useRef(null)
+
+  // A shared link (/s/<token>) opens a board without an account. `shared` holds
+  // the resolved link; `readonly` is true unless the owner allowed editing.
+  const shareToken = useMemo(() => {
+    if (typeof window === 'undefined') return null
+    const m = window.location.pathname.match(/^\/s\/([^/]+)\/?$/)
+    return m ? decodeURIComponent(m[1]) : null
+  }, [])
+  const [shared, setShared] = useState(null)
+  const [shareError, setShareError] = useState('')
+  const [guestName, setGuestName] = useState(() => {
+    try { return localStorage.getItem('myboard.guestName') || '' } catch (e) { return '' }
+  })
+  const readonly = !!shared && shared.mode !== 'edit'
 
   // Resolve the session, then load that account's own board (namespaced local
   // cache + D1 row). Sign-in is required before the board is shown.
@@ -83,9 +98,23 @@ export default function App() {
 
   useEffect(() => {
     let active = true
+    if (shareToken) {
+      store.loadShared(shareToken).then((res) => {
+        if (!active) return
+        if (res && res.error) {
+          setShareError(res.error.message || 'This shared board is not available.')
+          setAuthChecked(true)
+          return
+        }
+        setShared({ mode: res.mode, name: res.name })
+        setAuthChecked(true)
+        setBoardReady(true)
+      })
+      return () => { active = false }
+    }
     apiMe().then((res) => { if (active) enter(res && res.user ? res.user : null) })
     return () => { active = false }
-  }, [enter])
+  }, [enter, shareToken])
 
   const handleGoogleSignIn = useCallback(async () => {
     apiLoginWithGoogle()
@@ -144,7 +173,7 @@ export default function App() {
 
   // Seed a friendly first board once per account
   useEffect(() => {
-    if (!boardReady) return
+    if (!boardReady || shared) return
     const s = store.getState()
     if (s.notes.length || s.envelopes.length || s.pins.length) return
     const seedFlag = 'myboard.seeded:' + (session?.id || 'local')
@@ -166,7 +195,7 @@ export default function App() {
       const st = store.getState()
       cameraRef.current?.fit({ notes: st.notes, pins: st.pins, envelopes: st.envelopes, clips: st.clips, music: st.music, cards: st.cards })
     })
-  }, [boardReady, session])
+  }, [boardReady, session, shared])
 
   // Auto-dismiss the load hint after a few seconds
   useEffect(() => {
@@ -416,21 +445,23 @@ export default function App() {
     })
   }, [say])
 
-  const handleCtxBackground = useCallback((c) => setCtx({ ...c, kind: 'bg' }), [])
+  const handleCtxBackground = useCallback((c) => { if (!readonly) setCtx({ ...c, kind: 'bg' }) }, [readonly])
   const handleCtxItem = useCallback((e, item, kind) => {
+    if (readonly) return
     const p = cameraRef.current.worldPoint(e.clientX, e.clientY)
     // Right-clicking an item outside the current selection selects just it, so
     // the menu has a clear target (and acts on the selection when there is one).
     const ids = store.getState().selectedIds || []
     if (item && !ids.includes(item.id)) store.select(item.id)
     setCtx({ x: e.clientX, y: e.clientY, kind, item, wx: p.x, wy: p.y })
-  }, [])
+  }, [readonly])
 
   const handleCtxLink = useCallback((e, link) => {
     e.preventDefault()
     e.stopPropagation()
+    if (readonly) return
     setCtx({ x: e.clientX, y: e.clientY, kind: 'link', item: link, wx: 0, wy: 0 })
-  }, [])
+  }, [readonly])
 
   // ---- keyboard shortcuts are wired up after the callbacks below ----
 
@@ -710,6 +741,9 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e) => {
+      // Read-only shared boards accept no editing shortcuts (zoom still works
+      // via the on-screen controls).
+      if (readonly) return
       const el = document.activeElement
       const editing = el && (el.isContentEditable || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')
       if (editing) {
@@ -764,14 +798,17 @@ export default function App() {
     // propagation on keydown) has focus.
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [ctx, linkFrom, moreOpen, boardsOpen, handleAddCard, copySelected, fitView])
+  }, [ctx, linkFrom, moreOpen, boardsOpen, handleAddCard, copySelected, fitView, readonly])
 
   // obey no-emoji-ish default but these are handy: keep simple text icons above
 
   if (!authChecked) {
     return <div className="auth-splash" aria-busy="true" />
   }
-  if (!session) {
+  if (shareError) {
+    return <ShareErrorView message={shareError} />
+  }
+  if (!shared && !session) {
     return <AuthGate onGoogle={handleGoogleSignIn} onEmail={handleEmailSignIn} loadProviders={loadProviders} />
   }
   if (!boardReady) {
@@ -829,20 +866,24 @@ export default function App() {
         onResizeLocation={handleResizeLocation}
         hoverEnvId={hoverEnvId}
         getZoom={getZoom}
+        readonly={readonly}
       />
 
       {/* ---------- toolbar ---------- */}
+      {!readonly && (
       <div className="tb">
         <div className="tb-brand">
           <span className="tb-logo" /> <span>SimpleBoard</span>
         </div>
 
+        {!shared && (
         <div className="tb-boards">
           <button className={`tb-board-btn ${boardsOpen ? 'on' : ''}`} onClick={() => setBoardsOpen(true)} title="Browse boards">
             <span className="tb-board-name">{state.boardName || 'Board'}</span>
             <span className="tb-caret" aria-hidden="true">▾</span>
           </button>
         </div>
+        )}
 
         <div className="tb-tools">
           {TOOLS.map((t) => (
@@ -942,7 +983,7 @@ export default function App() {
               </div>
             )}
           </div>
-          {session && (
+          {session && !shared && (
             <button className="icon-btn" onClick={handleSignOut} title="Sign out"><SignOutIcon size={15} /></button>
           )}
         </div>
@@ -951,6 +992,37 @@ export default function App() {
         <input ref={musicInputRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={handleMusicFile} />
         <input ref={importInputRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={onImportFile} />
       </div>
+      )}
+
+      {shared && (
+        <div className="share-bar">
+          <span className="share-logo" />
+          <span className="share-name">{state.boardName || 'Shared board'}</span>
+          <span className={`share-mode ${readonly ? '' : 'edit'}`}>{readonly ? 'View only' : 'Editing'}</span>
+          {!readonly && (
+            <label className="share-as">
+              <span>as</span>
+              <input
+                value={guestName}
+                onChange={(e) => {
+                  const v = e.target.value.slice(0, 40)
+                  setGuestName(v)
+                  try { localStorage.setItem('myboard.guestName', v) } catch (err) {}
+                }}
+                placeholder="Your name"
+                spellCheck={false}
+              />
+            </label>
+          )}
+          {readonly && (
+            <span className="share-zoom">
+              <button className="icon-btn" onClick={() => cameraRef.current?.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1 / 1.25)} title="Zoom out"><ZoomOutIcon size={15} /></button>
+              <button className="zoom-read" onClick={fitView} title="Fit everything in view">{zoomPct}%</button>
+              <button className="icon-btn" onClick={() => cameraRef.current?.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.25)} title="Zoom in"><ZoomInIcon size={15} /></button>
+            </span>
+          )}
+        </div>
+      )}
 
       {showHint && <div className="tb-hint">drag = select · wheel = pan · ctrl+wheel = zoom</div>}
 
@@ -1124,11 +1196,14 @@ export default function App() {
           onRename={renameBoardById}
           onDelete={deleteBoardById}
           onUpgrade={() => { setBoardsOpen(false); setUpgradeOpen(true) }}
+          onShare={(b) => { setBoardsOpen(false); setShareBoard(b) }}
           onClose={() => setBoardsOpen(false)}
         />
       )}
 
       {upgradeOpen && <UpgradeDialog onClose={() => setUpgradeOpen(false)} />}
+
+      {shareBoard && <ShareDialog board={shareBoard} onClose={() => setShareBoard(null)} />}
 
       {help && <HelpDialog onClose={() => setHelp(false)} onFit={fitView} onExport={doExport} />}
     </div>
@@ -1233,7 +1308,7 @@ function relTime(t) {
   return new Date(t).toLocaleDateString()
 }
 
-function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDelete, onUpgrade, onClose }) {
+function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDelete, onUpgrade, onShare, onClose }) {
   const [q, setQ] = useState('')
   const [editing, setEditing] = useState(null)
   const [draft, setDraft] = useState('')
@@ -1301,6 +1376,7 @@ function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDele
                   <button className="board-card-name" onClick={() => onOpen(b.id)}>{b.name}</button>
                 )}
                 <div className="board-card-actions">
+                  <button title="Share" onClick={(e) => { e.stopPropagation(); onShare(b) }}>⧉</button>
                   <button title="Rename" onClick={(e) => { e.stopPropagation(); setEditing(b.id); setDraft(b.name) }}>✎</button>
                   <button
                     title="Delete"
@@ -1308,7 +1384,10 @@ function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDele
                   >×</button>
                 </div>
               </div>
-              <div className="board-card-meta">Edited {relTime(b.updatedAt)}</div>
+              <div className="board-card-meta">
+                Edited {relTime(b.updatedAt)}
+                {b.shareToken && <span className="board-shared" title="Shared via link">· Shared</span>}
+              </div>
             </div>
           ))}
 
@@ -1342,6 +1421,93 @@ function UpgradeDialog({ onClose }) {
           <button onClick={onClose}>Not now</button>
           <button className="primary" disabled title="Coming soon">Upgrade — coming soon</button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function ShareDialog({ board, onClose }) {
+  const [token, setToken] = useState(board.shareToken || null)
+  const [mode, setMode] = useState(board.shareMode || 'view')
+  const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const link = token ? `${window.location.origin}/s/${token}` : ''
+
+  const applyShare = async (nextMode) => {
+    setBusy(true)
+    const res = await apiSetShare(board.id, nextMode)
+    setBusy(false)
+    if (res && res.shareToken) {
+      setToken(res.shareToken)
+      setMode(res.shareMode)
+      store.setBoardShare(board.id, res.shareToken, res.shareMode)
+    }
+  }
+
+  const revoke = async () => {
+    setBusy(true)
+    const res = await apiRevokeShare(board.id)
+    setBusy(false)
+    if (res && !res.error) {
+      setToken(null)
+      store.setBoardShare(board.id, null, mode)
+    }
+  }
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link) } catch (e) {}
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
+  }
+
+  return (
+    <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal share-modal">
+        <h2>Share “{board.name}”</h2>
+        {!token ? (
+          <>
+            <p className="share-sub">Create a link anyone can open — no account needed.</p>
+            <div className="modal-btns">
+              <button onClick={onClose}>Cancel</button>
+              <button className="primary" disabled={busy} onClick={() => applyShare('view')}>Create link</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <label className="share-label">Anyone with the link</label>
+            <div className="share-linkrow">
+              <input className="share-link" readOnly value={link} onFocus={(e) => e.target.select()} />
+              <button className="primary" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+            </div>
+
+            <div className="share-modes">
+              <button className={`share-mode-opt ${mode === 'view' ? 'on' : ''}`} disabled={busy} onClick={() => applyShare('view')}>
+                <b>View only</b><span>Can look, can’t change anything</span>
+              </button>
+              <button className={`share-mode-opt ${mode === 'edit' ? 'on' : ''}`} disabled={busy} onClick={() => applyShare('edit')}>
+                <b>Can edit</b><span>Anyone with the link can change the board</span>
+              </button>
+            </div>
+
+            <div className="modal-btns">
+              <button className="danger" disabled={busy} onClick={revoke}>Stop sharing</button>
+              <button className="primary" onClick={onClose}>Done</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ShareErrorView({ message }) {
+  return (
+    <div className="share-error">
+      <div className="share-error-card">
+        <span className="share-logo" />
+        <h2>Board not available</h2>
+        <p>{message}</p>
+        <a className="primary-link" href="/">Go to SimpleBoard</a>
       </div>
     </div>
   )

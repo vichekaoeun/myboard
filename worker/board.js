@@ -2,8 +2,22 @@
 // by a user; access is always scoped to the signed-in user.
 
 import { json } from './auth.js'
+import { randomToken } from './crypto.js'
 
 const MAX_PAYLOAD = 1_500_000 // ~1.5 MB; keep media out of the board JSON.
+
+// Live-update rooms are Durable Objects. Each account has a room (keyed by the
+// user id); each shared board also has one so guests and the owner stay in sync.
+export function boardRoomName(id) {
+  return 'board:' + id
+}
+
+export async function notifyRoom(env, name) {
+  try {
+    const stub = env.ROOM.get(env.ROOM.idFromName(name))
+    await stub.fetch('https://room/notify', { method: 'POST' })
+  } catch (e) { /* realtime is best-effort */ }
+}
 
 // Entitlements. Free accounts get a small number of boards; Pro is unlimited
 // in practice. Enforced server-side so it can't be bypassed from the client.
@@ -21,7 +35,7 @@ function emptyPayload() {
 
 export async function handleBoard(request, env, user, url) {
   const method = request.method
-  const parts = url.pathname.split('/').filter(Boolean) // ['api','boards', id?]
+  const parts = url.pathname.split('/').filter(Boolean) // ['api','boards', id?, 'share'?]
   const id = parts[2] || null
 
   if (!id) {
@@ -30,12 +44,20 @@ export async function handleBoard(request, env, user, url) {
     return json({ error: 'Method not allowed' }, 405)
   }
 
+  // /api/boards/:id/share — manage the public link for one board.
+  if (parts[3] === 'share') return manageShare(request, env, user, id, method)
+
   const row = await env.DB
-    .prepare('SELECT id, user_id, name, payload, updated_at FROM boards WHERE id = ? AND user_id = ?')
+    .prepare('SELECT id, user_id, name, payload, updated_at, share_token, share_mode FROM boards WHERE id = ? AND user_id = ?')
     .bind(id, user.id).first()
   if (!row) return json({ error: 'Not found' }, 404)
 
-  if (method === 'GET') return json({ id: row.id, name: row.name, payload: row.payload, updatedAt: row.updated_at })
+  if (method === 'GET') {
+    return json({
+      id: row.id, name: row.name, payload: row.payload, updatedAt: row.updated_at,
+      shareToken: row.share_token || null, shareMode: row.share_mode || 'view',
+    })
+  }
   if (method === 'PUT') return saveBoard(request, env, user, row)
   if (method === 'PATCH') return renameBoard(request, env, user, row)
   if (method === 'DELETE') return deleteBoard(env, user, row)
@@ -44,11 +66,38 @@ export async function handleBoard(request, env, user, url) {
 
 async function listBoards(env, user) {
   const { results } = await env.DB
-    .prepare('SELECT id, name, updated_at FROM boards WHERE user_id = ? ORDER BY updated_at ASC')
+    .prepare('SELECT id, name, updated_at, share_token, share_mode FROM boards WHERE user_id = ? ORDER BY updated_at ASC')
     .bind(user.id).all()
   return json({
-    boards: (results || []).map((r) => ({ id: r.id, name: r.name, updatedAt: r.updated_at })),
+    boards: (results || []).map((r) => ({
+      id: r.id, name: r.name, updatedAt: r.updated_at,
+      shareToken: r.share_token || null, shareMode: r.share_mode || 'view',
+    })),
   })
+}
+
+// Create, update (mode) or revoke a board's share link.
+async function manageShare(request, env, user, id, method) {
+  const row = await env.DB
+    .prepare('SELECT id, share_token, share_mode FROM boards WHERE id = ? AND user_id = ?')
+    .bind(id, user.id).first()
+  if (!row) return json({ error: 'Not found' }, 404)
+
+  if (method === 'DELETE') {
+    await env.DB.prepare('UPDATE boards SET share_token = NULL WHERE id = ? AND user_id = ?').bind(id, user.id).run()
+    return json({ ok: true, shareToken: null, shareMode: row.share_mode || 'view' })
+  }
+  if (method === 'POST' || method === 'PATCH') {
+    let body = {}
+    try { body = await request.json() } catch (e) {}
+    const mode = body.mode === 'edit' ? 'edit' : 'view'
+    const token = row.share_token || randomToken(18)
+    await env.DB
+      .prepare('UPDATE boards SET share_token = ?, share_mode = ? WHERE id = ? AND user_id = ?')
+      .bind(token, mode, id, user.id).run()
+    return json({ ok: true, shareToken: token, shareMode: mode })
+  }
+  return json({ error: 'Method not allowed' }, 405)
 }
 
 async function createBoard(request, env, user) {
@@ -86,11 +135,10 @@ async function saveBoard(request, env, user, row) {
   await env.DB
     .prepare('UPDATE boards SET payload = ?, updated_at = ? WHERE id = ? AND user_id = ?')
     .bind(body.payload, now, row.id, user.id).run()
-  // Broadcast to this account's other connected devices.
-  try {
-    const stub = env.ROOM.get(env.ROOM.idFromName(user.id))
-    await stub.fetch('https://room/notify', { method: 'POST' })
-  } catch (e) { /* realtime is best-effort */ }
+  // Broadcast to this account's other devices, and to anyone viewing the
+  // shared link for this board.
+  await notifyRoom(env, user.id)
+  if (row.share_token) await notifyRoom(env, boardRoomName(row.id))
   return json({ ok: true, updatedAt: now })
 }
 

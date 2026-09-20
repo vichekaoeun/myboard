@@ -5,6 +5,7 @@ import {
   clearSessionCookie, json,
 } from './auth.js'
 import { handleBoard, boardSocket } from './board.js'
+import { handleShare, shareSocket } from './share.js'
 import { handleLinkPreview } from './preview.js'
 
 export { Room } from './room.js'
@@ -46,6 +47,15 @@ async function route(request, env, url, ctx) {
     const res = json({ ok: true })
     res.headers.append('Set-Cookie', clearSessionCookie(env))
     return res
+  }
+
+  // Public shared-board endpoints — no account required, token only.
+  if (path.startsWith('/api/share/')) {
+    const seg = path.split('/').filter(Boolean) // ['api','share', token, ...]
+    const token = seg[2] || null
+    if (seg[3] === 'ws' && method === 'GET') return shareSocket(request, env, token)
+    if (!seg[3]) return handleShare(request, env, url)
+    return json({ error: 'Not found' }, 404)
   }
 
   if (path === '/api/me' && method === 'GET') {

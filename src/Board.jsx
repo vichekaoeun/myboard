@@ -15,6 +15,7 @@ export default function Board({
   onSelect, onPointerSelect, onSelectMany, onChange, onLiveHeight, onEnvChange, onMoveEnd, onEnvMoveEnd, onPinMoveEnd, onClipMoveEnd, onClipResizeEnd, onMusicMoveEnd, onMusicResizeEnd, onCardMoveEnd, onCardResizeEnd, onOpenCard, onFanDrop, onDragMove,
   onAddNote, onAddPin, onAddClip, onAddEnvelope, onToggleEnvelope,
   onCtxBackground, onCtxItem, onEditLocation, onResizeLocation, onLinkClick, onOpenLink, onCtxLink, hoverEnvId,
+  readonly = false,
 }) {
   const pan = useRef(null)
   const spaceRef = useRef(false)
@@ -99,6 +100,11 @@ export default function Board({
       return
     }
     if (e.button !== 0) return
+    // Shared view links are read-only: dragging only pans the board.
+    if (readonly) {
+      startPan(e)
+      return
+    }
     const w = worldAt(e)
     if (mode === 'note' || mode === 'pin' || mode === 'envelope') {
       e.stopPropagation()
@@ -174,15 +180,17 @@ export default function Board({
   return (
     <div
       ref={containerRef}
-      className={`board ${mode === 'link' ? 'linking' : ''}`}
+      className={`board ${mode === 'link' ? 'linking' : ''} ${readonly ? 'readonly' : ''}`}
       onPointerDown={handleBgPointerDown}
       onDoubleClick={(e) => {
+        if (readonly) return
         if (!e.target.closest('.note,.envelope,.pin-item,.music-item')) {
           const w = worldAt(e)
           onAddNote(w.x, w.y)
         }
       }}
       onContextMenu={(e) => {
+        if (readonly) return
         if (e.target.closest('.note,.envelope,.pin-item,.music-item')) return
         e.preventDefault()
         const w = worldAt(e)

@@ -72,13 +72,31 @@ export function apiDeleteBoard(id) {
   return req('DELETE', `/api/boards/${id}`)
 }
 
+// Share link management (owner side).
+export function apiSetShare(id, mode) {
+  return req('POST', `/api/boards/${id}/share`, { mode })
+}
+
+export function apiRevokeShare(id) {
+  return req('DELETE', `/api/boards/${id}/share`)
+}
+
+// Public shared-board access (guest side, token only).
+export function apiGetShare(token) {
+  return req('GET', `/api/share/${token}`)
+}
+
+export function apiPutShare(token, payload) {
+  return req('PUT', `/api/share/${token}`, { payload })
+}
+
 export function apiLinkPreview(url) {
   return req('GET', `/api/link-preview?url=${encodeURIComponent(url)}`)
 }
 
 // Live updates: the Worker pings "changed" whenever this account's board is
 // saved elsewhere, and we simply re-pull. Auto-reconnects while mounted.
-export function apiOpenSocket(onChange) {
+function openSocket(path, onChange) {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const host = API_BASE ? new URL(API_BASE, window.location.href).host : window.location.host
   let ws = null
@@ -87,7 +105,7 @@ export function apiOpenSocket(onChange) {
   const connect = () => {
     if (closed) return
     try {
-      ws = new WebSocket(`${proto}://${host}/api/ws`)
+      ws = new WebSocket(`${proto}://${host}${path}`)
       ws.onmessage = () => onChange()
       ws.onclose = () => { if (!closed) setTimeout(connect, 3000) }
       ws.onerror = () => { try { ws.close() } catch (e) {} }
@@ -101,4 +119,12 @@ export function apiOpenSocket(onChange) {
     closed = true
     if (ws) { ws.onclose = null; try { ws.close() } catch (e) {} }
   }
+}
+
+export function apiOpenSocket(onChange) {
+  return openSocket('/api/ws', onChange)
+}
+
+export function apiOpenShareSocket(token, onChange) {
+  return openSocket(`/api/share/${token}/ws`, onChange)
 }
