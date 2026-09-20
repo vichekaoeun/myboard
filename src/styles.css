@@ -1249,41 +1249,122 @@ body.mb-selecting * { user-select: none !important; }
 .tb-board-btn.on { background: rgba(255, 255, 255, 0.14); }
 .tb-board-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tb-caret { flex: none; font-size: 10px; opacity: 0.6; }
-.tb-boards-menu { left: 0; right: auto; min-width: 250px; }
-.tb-board-row { display: flex; align-items: center; gap: 2px; }
-.tb-board-open {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 8px;
+
+/* ---- boards gallery ---- */
+.boards-modal { width: min(880px, 94vw); max-height: 84vh; display: flex; flex-direction: column; }
+.boards-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.boards-head h2 { margin: 0; }
+.boards-tools { display: flex; align-items: center; gap: 8px; }
+.boards-search {
+  width: 190px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(120, 100, 70, 0.35);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2e8d9;
+  font: 500 13px 'Inter', system-ui, sans-serif;
+  outline: none;
+}
+.boards-search::placeholder { color: rgba(255, 235, 205, 0.45); }
+.boards-search:focus { border-color: var(--accent); }
+.boards-new-btn {
+  height: 34px;
+  padding: 0 14px;
   border: 0;
   border-radius: 8px;
-  background: transparent;
+  background: var(--accent);
+  color: #33230c;
+  font: 700 13px 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+.boards-new-btn:hover { filter: brightness(1.05); }
+.boards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+  overflow: auto;
+  padding: 2px;
+}
+.board-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  text-align: left;
+}
+.board-card.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.board-cover {
+  height: 88px;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+  transition: transform 0.12s ease;
+}
+.board-cover:hover { transform: translateY(-1px); }
+.board-card-row { display: flex; align-items: center; gap: 6px; }
+.board-card-name {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
   color: #f2e8d9;
-  font: 500 13px/1 'Inter', system-ui, sans-serif;
+  font: 600 14px/1.3 'Inter', system-ui, sans-serif;
   text-align: left;
   cursor: pointer;
-  transition: background 0.12s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.tb-board-open:hover { background: rgba(255, 255, 255, 0.1); }
-.tb-board-check { flex: none; width: 14px; color: var(--accent); }
-.tb-board-rowname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tb-board-row.on .tb-board-rowname { font-weight: 700; }
-.tb-board-mini {
-  flex: none;
+.board-name-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  font: 600 14px 'Inter', system-ui, sans-serif;
+  outline: none;
+}
+.board-card-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s ease; }
+.board-card:hover .board-card-actions { opacity: 1; }
+.board-card-actions button {
   width: 26px;
   height: 26px;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: rgba(255, 235, 205, 0.55);
+  color: rgba(255, 235, 205, 0.7);
   font-size: 13px;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
 }
-.tb-board-mini:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.board-card-actions button:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.board-card-meta { color: rgba(255, 235, 205, 0.5); font: 500 11.5px 'Inter', system-ui, sans-serif; }
+.board-card-new {
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 150px;
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.22);
+  background: transparent;
+  color: rgba(255, 235, 205, 0.75);
+  font: 600 13px 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+.board-card-new:hover { border-color: var(--accent); color: #fff; }
+.board-new-plus { font-size: 22px; line-height: 1; }
+.boards-empty { padding: 20px; text-align: center; color: rgba(255, 235, 205, 0.6); }
 .tb-kbd {
   flex: none;
   min-width: 18px;

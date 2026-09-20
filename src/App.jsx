@@ -453,17 +453,6 @@ export default function App() {
     return () => window.removeEventListener('pointerdown', onPointerDown, true)
   }, [moreOpen])
 
-  // Close the board switcher when clicking elsewhere
-  useEffect(() => {
-    if (!boardsOpen) return
-    const onPointerDown = (e) => {
-      if (e.target && e.target.closest && e.target.closest('.tb-boards')) return
-      setBoardsOpen(false)
-    }
-    window.addEventListener('pointerdown', onPointerDown, true)
-    return () => window.removeEventListener('pointerdown', onPointerDown, true)
-  }, [boardsOpen])
-
   // ---- view helpers -----------------------------------------------------------
 
   const zoomPct = Math.round((state.view?.s || 1) * 100)
@@ -692,6 +681,17 @@ export default function App() {
     say('Duplicated')
   }, [say])
 
+  // ---- boards -----------------------------------------------------------------
+
+  const openBoardById = useCallback((id) => { setBoardsOpen(false); store.openBoard(id) }, [])
+  const newBoard = useCallback(() => {
+    const v = window.prompt('Board name', 'New board')
+    if (v == null) return // cancelled — don't create
+    store.createBoard(v.trim() || 'New board')
+  }, [])
+  const renameBoardById = useCallback((id, name) => store.renameBoard(id, name), [])
+  const deleteBoardById = useCallback((id) => store.deleteBoard(id), [])
+
   // ---- keyboard ---------------------------------------------------------------
 
   useEffect(() => {
@@ -720,6 +720,7 @@ export default function App() {
       const k = e.key
       if (k === 'Escape') {
         if (ctx) setCtx(null)
+        else if (boardsOpen) setBoardsOpen(false)
         else if (moreOpen) setMoreOpen(false)
         else if (linkFrom) { linkFromRef.current = null; setLinkFrom(null) }
         else if (store.getState().mode !== 'move') store.setMode('move')
@@ -749,7 +750,7 @@ export default function App() {
     // propagation on keydown) has focus.
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [ctx, linkFrom, moreOpen, handleAddCard, copySelected, fitView])
+  }, [ctx, linkFrom, moreOpen, boardsOpen, handleAddCard, copySelected, fitView])
 
   // obey no-emoji-ish default but these are handy: keep simple text icons above
 
@@ -823,26 +824,10 @@ export default function App() {
         </div>
 
         <div className="tb-boards">
-          <button className={`tb-board-btn ${boardsOpen ? 'on' : ''}`} onClick={() => setBoardsOpen((v) => !v)} title="Switch board">
+          <button className={`tb-board-btn ${boardsOpen ? 'on' : ''}`} onClick={() => setBoardsOpen(true)} title="Browse boards">
             <span className="tb-board-name">{state.boardName || 'Board'}</span>
             <span className="tb-caret" aria-hidden="true">▾</span>
           </button>
-          {boardsOpen && (
-            <div className="tb-menu tb-boards-menu" onPointerDown={(e) => e.stopPropagation()}>
-              {state.boards.map((b) => (
-                <div key={b.id} className={`tb-board-row ${b.id === state.boardId ? 'on' : ''}`}>
-                  <button className="tb-board-open" onClick={() => { setBoardsOpen(false); store.openBoard(b.id) }}>
-                    <span className="tb-board-check">{b.id === state.boardId ? '✓' : ''}</span>
-                    <span className="tb-board-rowname">{b.name}</span>
-                  </button>
-                  <button className="tb-board-mini" title="Rename board" onClick={() => { const v = window.prompt('Rename board', b.name); if (v != null && v.trim()) store.renameBoard(b.id, v.trim()) }}>✎</button>
-                  <button className="tb-board-mini" title="Delete board" onClick={() => { if (window.confirm(`Delete “${b.name}”?`)) store.deleteBoard(b.id) }}>×</button>
-                </div>
-              ))}
-              <div className="tb-menu-div" />
-              <button className="tb-menu-item" onClick={() => { setBoardsOpen(false); const v = window.prompt('New board name', 'New board'); store.createBoard(v && v.trim() ? v.trim() : 'New board') }}>＋ New board</button>
-            </div>
-          )}
         </div>
 
         <div className="tb-tools">
@@ -1115,6 +1100,18 @@ export default function App() {
       {toast && <div className="toast">{toast}</div>}
 
       {/* ---------- help ---------- */}
+      {boardsOpen && (
+        <BoardsDialog
+          boards={state.boards}
+          currentId={state.boardId}
+          onOpen={openBoardById}
+          onNew={newBoard}
+          onRename={renameBoardById}
+          onDelete={deleteBoardById}
+          onClose={() => setBoardsOpen(false)}
+        />
+      )}
+
       {help && <HelpDialog onClose={() => setHelp(false)} onFit={fitView} onExport={doExport} />}
     </div>
   )
@@ -1196,6 +1193,103 @@ function HelpDialog({ onClose, onFit, onExport }) {
           <button onClick={onExport}>Export backup</button>
           <button className="primary" onClick={onClose}>Got it</button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function boardCover(id) {
+  let h = 0
+  const s = String(id || '')
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360
+  return `linear-gradient(135deg, hsl(${h} 42% 70%), hsl(${(h + 28) % 360} 40% 54%))`
+}
+
+function relTime(t) {
+  if (!t) return '—'
+  const d = Date.now() - t
+  if (d < 60000) return 'just now'
+  if (d < 3600000) return `${Math.floor(d / 60000)}m ago`
+  if (d < 86400000) return `${Math.floor(d / 3600000)}h ago`
+  if (d < 7 * 86400000) return `${Math.floor(d / 86400000)}d ago`
+  return new Date(t).toLocaleDateString()
+}
+
+function BoardsDialog({ boards, currentId, onOpen, onNew, onRename, onDelete, onClose }) {
+  const [q, setQ] = useState('')
+  const [editing, setEditing] = useState(null)
+  const [draft, setDraft] = useState('')
+  const needle = q.trim().toLowerCase()
+  const filtered = boards.filter((b) => b.name.toLowerCase().includes(needle))
+
+  const commit = (b) => {
+    const v = draft.trim()
+    if (v && v !== b.name) onRename(b.id, v)
+    setEditing(null)
+  }
+
+  return (
+    <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal boards-modal">
+        <div className="boards-head">
+          <h2>Your boards</h2>
+          <div className="boards-tools">
+            <input
+              className="boards-search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search boards…"
+              spellCheck={false}
+            />
+            <button className="boards-new-btn" onClick={onNew}>＋ New board</button>
+            <button className="icon-btn" onClick={onClose} title="Close">×</button>
+          </div>
+        </div>
+
+        <div className="boards-grid">
+          {filtered.map((b) => (
+            <div key={b.id} className={`board-card ${b.id === currentId ? 'on' : ''}`}>
+              <button
+                className="board-cover"
+                style={{ background: boardCover(b.id) }}
+                onClick={() => onOpen(b.id)}
+                aria-label={`Open ${b.name}`}
+              />
+              <div className="board-card-row">
+                {editing === b.id ? (
+                  <input
+                    className="board-name-input"
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={() => commit(b)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); commit(b) }
+                      else if (e.key === 'Escape') { e.stopPropagation(); setEditing(null) }
+                    }}
+                  />
+                ) : (
+                  <button className="board-card-name" onClick={() => onOpen(b.id)}>{b.name}</button>
+                )}
+                <div className="board-card-actions">
+                  <button title="Rename" onClick={(e) => { e.stopPropagation(); setEditing(b.id); setDraft(b.name) }}>✎</button>
+                  <button
+                    title="Delete"
+                    onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete “${b.name}”?`)) onDelete(b.id) }}
+                  >×</button>
+                </div>
+              </div>
+              <div className="board-card-meta">Edited {relTime(b.updatedAt)}</div>
+            </div>
+          ))}
+
+          <button className="board-card board-card-new" onClick={onNew}>
+            <span className="board-new-plus" aria-hidden="true">＋</span>
+            <span>New board</span>
+          </button>
+        </div>
+
+        {filtered.length === 0 && <div className="boards-empty">No boards match “{q}”.</div>}
       </div>
     </div>
   )
