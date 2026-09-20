@@ -51,7 +51,9 @@ async function route(request, env, url, ctx) {
   if (path === '/api/me' && method === 'GET') {
     const user = await getSession(request, env)
     return json({
-      user: user ? { id: user.id, email: user.email, name: user.name, picture: user.picture } : null,
+      user: user
+        ? { id: user.id, email: user.email, name: user.name, picture: user.picture, plan: user.plan || 'free' }
+        : null,
     })
   }
 

@@ -21,6 +21,8 @@ const TOOLS = [
   { id: 'link', label: 'Link', icon: LinkIcon },
 ]
 
+const FREE_BOARD_LIMIT = 3
+
 const PAPER_COLORS = [
   { id: 'white', label: 'Cream', swatch: '#fdfaf1' },
   { id: 'yellow', label: 'Canary', swatch: '#fff8c4' },
@@ -41,6 +43,7 @@ export default function App() {
   const importInputRef = useRef(null)
   const [moreOpen, setMoreOpen] = useState(false)
   const [boardsOpen, setBoardsOpen] = useState(false)
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [hoverEnvId, setHoverEnvId] = useState(null)
   const [ctx, setCtx] = useState(null)
   const [help, setHelp] = useState(false)
@@ -685,10 +688,21 @@ export default function App() {
 
   const openBoardById = useCallback((id) => { setBoardsOpen(false); store.openBoard(id) }, [])
   const newBoard = useCallback(() => {
+    const plan = session?.plan || 'free'
+    if (plan !== 'pro' && store.getState().boards.length >= FREE_BOARD_LIMIT) {
+      setUpgradeOpen(true)
+      return
+    }
     const v = window.prompt('Board name', 'New board')
     if (v == null) return // cancelled — don't create
-    store.createBoard(v.trim() || 'New board')
-  }, [])
+    const res = store.createBoard(v.trim() || 'New board')
+    return Promise.resolve(res).then((r) => {
+      if (r && r.error) {
+        if (r.error.code === 'board_limit') setUpgradeOpen(true)
+        else say(r.error.message || 'Could not create board')
+      }
+    })
+  }, [session, say])
   const renameBoardById = useCallback((id, name) => store.renameBoard(id, name), [])
   const deleteBoardById = useCallback((id) => store.deleteBoard(id), [])
 
@@ -1104,13 +1118,17 @@ export default function App() {
         <BoardsDialog
           boards={state.boards}
           currentId={state.boardId}
+          plan={session?.plan || 'free'}
           onOpen={openBoardById}
           onNew={newBoard}
           onRename={renameBoardById}
           onDelete={deleteBoardById}
+          onUpgrade={() => { setBoardsOpen(false); setUpgradeOpen(true) }}
           onClose={() => setBoardsOpen(false)}
         />
       )}
+
+      {upgradeOpen && <UpgradeDialog onClose={() => setUpgradeOpen(false)} />}
 
       {help && <HelpDialog onClose={() => setHelp(false)} onFit={fitView} onExport={doExport} />}
     </div>
@@ -1215,12 +1233,13 @@ function relTime(t) {
   return new Date(t).toLocaleDateString()
 }
 
-function BoardsDialog({ boards, currentId, onOpen, onNew, onRename, onDelete, onClose }) {
+function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDelete, onUpgrade, onClose }) {
   const [q, setQ] = useState('')
   const [editing, setEditing] = useState(null)
   const [draft, setDraft] = useState('')
   const needle = q.trim().toLowerCase()
   const filtered = boards.filter((b) => b.name.toLowerCase().includes(needle))
+  const isPro = plan === 'pro'
 
   const commit = (b) => {
     const v = draft.trim()
@@ -1241,9 +1260,19 @@ function BoardsDialog({ boards, currentId, onOpen, onNew, onRename, onDelete, on
               placeholder="Search boards…"
               spellCheck={false}
             />
+            {!isPro && <button className="boards-upgrade" onClick={onUpgrade}>Upgrade</button>}
             <button className="boards-new-btn" onClick={onNew}>＋ New board</button>
             <button className="icon-btn" onClick={onClose} title="Close">×</button>
           </div>
+        </div>
+
+        <div className="boards-planline">
+          <span className={`plan-chip ${isPro ? 'pro' : ''}`}>{isPro ? 'Pro' : 'Free plan'}</span>
+          <span className="boards-plannote">
+            {isPro
+              ? 'Unlimited boards, history, media and collaboration.'
+              : `${boards.length} of ${FREE_BOARD_LIMIT} boards used`}
+          </span>
         </div>
 
         <div className="boards-grid">
@@ -1290,6 +1319,29 @@ function BoardsDialog({ boards, currentId, onOpen, onNew, onRename, onDelete, on
         </div>
 
         {filtered.length === 0 && <div className="boards-empty">No boards match “{q}”.</div>}
+      </div>
+    </div>
+  )
+}
+
+function UpgradeDialog({ onClose }) {
+  return (
+    <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal upgrade-modal">
+        <h2>SimpleBoard Pro</h2>
+        <p className="upgrade-sub">One plan for you and the people you share boards with.</p>
+        <ul className="upgrade-list">
+          <li><b>Unlimited boards</b></li>
+          <li><b>Version history &amp; backups</b> — restore any board</li>
+          <li><b>Full-quality media</b> — plus video &amp; PDF embeds</li>
+          <li><b>Private, passcode-locked boards</b></li>
+          <li><b>Collaboration</b> — share a board with realtime edits, comments and roles</li>
+        </ul>
+        <div className="upgrade-price"><b>$3/mo</b> &nbsp;or&nbsp; <b>$24/yr</b> <span>(≈$2/mo)</span></div>
+        <div className="modal-btns">
+          <button onClick={onClose}>Not now</button>
+          <button className="primary" disabled title="Coming soon">Upgrade — coming soon</button>
+        </div>
       </div>
     </div>
   )

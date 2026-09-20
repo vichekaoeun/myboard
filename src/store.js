@@ -285,10 +285,11 @@ export async function openBoard(id) {
   return loaded
 }
 
-// Create a new board and open it.
+// Create a new board and open it. Returns the response (may carry an error,
+// e.g. plan board-limit).
 export async function createBoard(name) {
   const res = await apiCreateBoard(name || 'New board')
-  if (!res || res.error) return null
+  if (!res || res.error) return res
   boards = [...boards, { id: res.id, name: res.name, updatedAt: res.updatedAt }]
   await openBoard(res.id)
   return res

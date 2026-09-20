@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
   name        TEXT,
   picture     TEXT,
   provider    TEXT NOT NULL DEFAULT 'email',
+  plan        TEXT NOT NULL DEFAULT 'free',
+  plan_renews_at INTEGER,
   created_at  INTEGER NOT NULL
 );
 

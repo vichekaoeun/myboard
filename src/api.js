@@ -16,7 +16,15 @@ async function req(method, path, body) {
   }
   let data = null
   try { data = await res.json() } catch (e) {}
-  if (!res.ok) return { error: { message: (data && data.error) || res.statusText, status: res.status } }
+  if (!res.ok) {
+    return {
+      error: {
+        code: (data && data.error) || 'error',
+        message: (data && (data.message || data.error)) || res.statusText,
+        status: res.status,
+      },
+    }
+  }
   return data || {}
 }
 

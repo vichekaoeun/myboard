@@ -4,7 +4,13 @@
 import { json } from './auth.js'
 
 const MAX_PAYLOAD = 1_500_000 // ~1.5 MB; keep media out of the board JSON.
-const MAX_BOARDS = 50
+
+// Entitlements. Free accounts get a small number of boards; Pro is unlimited
+// in practice. Enforced server-side so it can't be bypassed from the client.
+const PLAN_BOARD_LIMIT = { free: 3, pro: 500 }
+function boardLimit(plan) {
+  return PLAN_BOARD_LIMIT[plan] || PLAN_BOARD_LIMIT.free
+}
 
 function emptyPayload() {
   return JSON.stringify({
@@ -52,7 +58,15 @@ async function createBoard(request, env, user) {
   const count = await env.DB
     .prepare('SELECT COUNT(*) AS n FROM boards WHERE user_id = ?')
     .bind(user.id).first()
-  if ((count && count.n) >= MAX_BOARDS) return json({ error: 'Too many boards' }, 400)
+  const limit = boardLimit(user.plan)
+  if ((count && count.n) >= limit) {
+    return json({
+      error: 'board_limit',
+      message: `Your Free plan includes ${limit} boards. Upgrade to Pro for unlimited boards.`,
+      limit,
+      plan: user.plan || 'free',
+    }, 402)
+  }
   const id = crypto.randomUUID()
   const now = Date.now()
   await env.DB
