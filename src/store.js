@@ -1094,6 +1094,7 @@ export function exportData() {
 // mirrors it for cross-device sync.
 
 const CLOUD_PUSH_MS = 800
+const SHARE_POLL_MS = 4000
 let cloudTimer = null
 let cloudPushBusy = false
 let cloudSubReady = false
@@ -1101,6 +1102,7 @@ let cloudEnabled = false
 let cloudUser = null
 let boardRowId = null
 let apiSocketClose = null
+let sharePollTimer = null
 // When set, the store is viewing a board through a public share link rather
 // than the owner's account. `sharedMode` is 'view' (read-only) or 'edit'.
 let sharedToken = null
@@ -1217,6 +1219,10 @@ function applyRemote(rawPayload) {
 
 export async function stopCloud() {
   cloudSubReady = false
+  if (sharePollTimer) {
+    clearInterval(sharePollTimer)
+    sharePollTimer = null
+  }
   if (apiSocketClose) {
     try { apiSocketClose() } catch (e) {}
     apiSocketClose = null
@@ -1230,6 +1236,12 @@ export async function startCloud() {
     ? apiOpenShareSocket(sharedToken, () => { pullCloud() })
     : apiOpenSocket(() => { pullCloud() })
   cloudSubReady = true
+  // Shared links also poll: viewers on flaky networks (or behind proxies that
+  // drop WebSockets) must never be stuck on a stale board.
+  if (sharedToken) {
+    clearInterval(sharePollTimer)
+    sharePollTimer = setInterval(() => { pullCloud() }, SHARE_POLL_MS)
+  }
 }
 
 // One-shot pull of the current board. Returns true when a remote board existed.
