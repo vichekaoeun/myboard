@@ -99,6 +99,13 @@ export default function App() {
   useEffect(() => {
     let active = true
     if (shareToken) {
+      // If the owner revokes the link while we're viewing, drop back to a
+      // "no longer available" screen instead of leaving the board on screen.
+      store.onShareLost(() => {
+        setShared(null)
+        setBoardReady(false)
+        setShareError('This shared board is no longer available.')
+      })
       store.loadShared(shareToken).then((res) => {
         if (!active) return
         if (res && res.error) {
@@ -768,7 +775,9 @@ export default function App() {
       const k = e.key
       if (k === 'Escape') {
         if (ctx) setCtx(null)
+        else if (shareBoard) setShareBoard(null)
         else if (boardsOpen) setBoardsOpen(false)
+        else if (upgradeOpen) setUpgradeOpen(false)
         else if (moreOpen) setMoreOpen(false)
         else if (linkFrom) { linkFromRef.current = null; setLinkFrom(null) }
         else if (store.getState().mode !== 'move') store.setMode('move')
@@ -798,7 +807,7 @@ export default function App() {
     // propagation on keydown) has focus.
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [ctx, linkFrom, moreOpen, boardsOpen, handleAddCard, copySelected, fitView, readonly])
+  }, [ctx, linkFrom, moreOpen, boardsOpen, upgradeOpen, shareBoard, handleAddCard, copySelected, fitView, readonly])
 
   // obey no-emoji-ish default but these are handy: keep simple text icons above
 

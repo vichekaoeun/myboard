@@ -85,6 +85,9 @@ async function manageShare(request, env, user, id, method) {
 
   if (method === 'DELETE') {
     await env.DB.prepare('UPDATE boards SET share_token = NULL WHERE id = ? AND user_id = ?').bind(id, user.id).run()
+    // Wake anyone viewing the link so they re-check and see it's gone.
+    await notifyRoom(env, boardRoomName(id))
+    await notifyRoom(env, user.id)
     return json({ ok: true, shareToken: null, shareMode: row.share_mode || 'view' })
   }
   if (method === 'POST' || method === 'PATCH') {
@@ -95,6 +98,8 @@ async function manageShare(request, env, user, id, method) {
     await env.DB
       .prepare('UPDATE boards SET share_token = ?, share_mode = ? WHERE id = ? AND user_id = ?')
       .bind(token, mode, id, user.id).run()
+    // Wake viewers so a newly created/updated link is picked up.
+    await notifyRoom(env, boardRoomName(id))
     return json({ ok: true, shareToken: token, shareMode: mode })
   }
   return json({ error: 'Method not allowed' }, 405)

@@ -409,6 +409,14 @@ export function saveNow() {
     saveTimer = null
   }
   if (!state) return
+  persistLocal()
+  scheduleCloudPush()
+}
+
+// Write the current state to the local cache only — no cloud push and no
+// "unsaved local edit" bookkeeping. Used when applying remote updates.
+function persistLocal() {
+  if (!state) return
   const payload = JSON.stringify(state)
   try {
     localStorage.setItem(storageKey, payload)
@@ -419,7 +427,6 @@ export function saveNow() {
     const tx = db.transaction(DB_STORE, 'readwrite')
     tx.objectStore(DB_STORE).put(payload, storageKey)
   }
-  scheduleCloudPush()
 }
 
 function scheduleSave() {
@@ -595,6 +602,12 @@ export function updateNote(id, patch) {
 
 // Live height sync during typing: updates state without polluting undo history.
 export function updateNoteLive(id, patch) {
+  const note = state.notes.find((n) => n.id === id)
+  if (note) {
+    let changed = false
+    for (const k in patch) { if (note[k] !== patch[k]) { changed = true; break } }
+    if (!changed) return
+  }
   state = {
     ...state,
     notes: state.notes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
@@ -1184,8 +1197,11 @@ function applyRemote(rawPayload) {
     view: remote.view,
   })
   if (localJson === remoteJson) return
-  mutate((s) => ({
-    ...s,
+  // Apply directly rather than via mutate(): remote content is not a local
+  // edit, so it must not count as unsaved work (which would block further
+  // pulls) nor push the same data straight back to the server.
+  state = {
+    ...state,
     notes: remote.notes || [],
     pins: remote.pins || [],
     clips: remote.clips || [],
@@ -1193,8 +1209,10 @@ function applyRemote(rawPayload) {
     cards: remote.cards || [],
     envelopes: remote.envelopes || [],
     links: remote.links || [],
-    view: s.view.s === undefined ? remote.view || s.view : s.view,
-  }))
+    view: state.view.s === undefined ? remote.view || state.view : state.view,
+  }
+  emit()
+  persistLocal()
 }
 
 export async function stopCloud() {
@@ -1218,21 +1236,47 @@ export async function startCloud() {
 export async function pullCloud() {
   if (!cloudEnabled) return false
   if (!sharedToken && !boardRowId) return false
+  // A viewer has no local edits to protect, so always accept remote updates.
+  const viewing = !!sharedToken && sharedMode !== 'edit'
   // Don't overwrite local edits that haven't been pushed yet. Our own pushes
   // also trigger realtime pings, so applying a stale remote here would clobber
   // newer local state (e.g. a freshly seeded board).
-  if (isDirty()) return false
+  if (!viewing && isDirty()) return false
   const res = sharedToken ? await apiGetShare(sharedToken) : await apiGetBoard(boardRowId)
   if (res && res.error) {
-    console.warn('board sync: pull failed', res.error.message)
+    if (sharedToken && (res.error.status === 404 || res.error.code === 'not_found')) {
+      loseShare()
+    } else {
+      console.warn('board sync: pull failed', res.error.message)
+    }
     return false
   }
   if (res && res.payload) {
     // Local edits may have happened while the request was in flight — never
     // overwrite unsynced local state with an older remote board.
-    if (isDirty()) return false
+    if (!viewing && isDirty()) return false
     applyRemote(res.payload)
     return true
   }
   return false
+}
+
+// The shared link was revoked or deleted: drop the board and tell the app.
+function loseShare() {
+  sharedToken = null
+  sharedMode = 'view'
+  cloudEnabled = false
+  cloudUser = null
+  stopCloud()
+  state = defaultState()
+  snapshot = state
+  history.length = 0
+  redo.length = 0
+  emit()
+  if (shareLostCb) shareLostCb()
+}
+
+let shareLostCb = null
+export function onShareLost(fn) {
+  shareLostCb = fn
 }
