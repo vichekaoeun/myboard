@@ -4,7 +4,7 @@ import {
   getSession, requestMagicLink, verifyMagicLink, googleStart, googleCallback,
   clearSessionCookie, json,
 } from './auth.js'
-import { getBoard, putBoard, boardSocket } from './board.js'
+import { handleBoard, boardSocket } from './board.js'
 import { handleLinkPreview } from './preview.js'
 
 export { Room } from './room.js'
@@ -59,8 +59,9 @@ async function route(request, env, url, ctx) {
   const user = await getSession(request, env)
   if (!user) return json({ error: 'Not signed in' }, 401)
 
-  if (path === '/api/board' && method === 'GET') return getBoard(request, env, user)
-  if (path === '/api/board' && method === 'PUT') return putBoard(request, env, user)
+  if ((path === '/api/boards' || path.startsWith('/api/boards/')) && ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    return handleBoard(request, env, user, url)
+  }
   if (path === '/api/link-preview' && method === 'GET') return handleLinkPreview(request, env, ctx)
   if (path === '/api/ws' && method === 'GET') return boardSocket(request, env, user)
 

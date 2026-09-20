@@ -1,4 +1,4 @@
--- Cloudflare D1 schema for My Board (run once, locally and in production).
+-- Cloudflare D1 schema for SimpleBoard (run once, locally and in production).
 --   local:  npx wrangler d1 execute myboard --local  --file=./db/schema.sql
 --   remote: npx wrangler d1 execute myboard --remote --file=./db/schema.sql
 
@@ -19,11 +19,15 @@ CREATE TABLE IF NOT EXISTS login_tokens (
   created_at  INTEGER NOT NULL
 );
 
--- One board per account, stored as a JSON string.
+CREATE INDEX IF NOT EXISTS idx_login_tokens_email ON login_tokens (email);
+
+-- Boards: many per account. `user_id` is the owner.
 CREATE TABLE IF NOT EXISTS boards (
-  user_id     TEXT PRIMARY KEY,
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  name        TEXT NOT NULL DEFAULT 'Board',
   payload     TEXT NOT NULL,
   updated_at  INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_login_tokens_email ON login_tokens (email);
+CREATE INDEX IF NOT EXISTS idx_boards_user ON boards (user_id);

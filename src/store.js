@@ -1,6 +1,9 @@
-// ---- Persistence / state store for My Board -------------------------------
+// ---- Persistence / state store for SimpleBoard -------------------------------
 
-import { apiGetBoard, apiOpenSocket, apiPutBoard } from './api.js'
+import {
+  apiCreateBoard, apiDeleteBoard, apiGetBoard, apiListBoards,
+  apiOpenSocket, apiPutBoard, apiRenameBoard,
+} from './api.js'
 
 const DB_NAME = 'myboard'
 const DB_STORE = 'state'
@@ -40,6 +43,7 @@ const redo = []
 // two people on the same device never see each other's notes.
 let storageKey = DB_KEY
 let currentUserId = null
+let boards = []
 
 // Sync bookkeeping: every local edit bumps `localVersion`; a successful push
 // records `pushedVersion`. While the two differ we have unsaved local changes,
@@ -88,6 +92,9 @@ function defaultState() {
     selected: null,
     selectedIds: [],
     mode: 'move',
+    boards: [],
+    boardId: null,
+    boardName: '',
   }
 }
 
@@ -215,50 +222,109 @@ async function applyKey(key) {
 }
 
 export async function initStore() {
-  // Guest / local-only board. Signed-in accounts replace this via loadBoard().
+  // Guest board shown until auth resolves; replaced by loadBoard().
   return applyKey(DB_KEY)
 }
 
-// Switch to a signed-in account's board: namespaced local cache + cloud sync.
-export async function loadBoard(userId) {
-  currentUserId = userId || null
-  const userKey = currentUserId ? `board:${currentUserId}` : DB_KEY
-  const saved = await loadFromDB(userKey)
-  let merged
-  let fresh
-  if (saved) {
-    merged = hydrate(saved)
-    fresh = false
-  } else {
-    // First sign-in on this device: adopt the pre-accounts local board (key
-    // "main") so introducing accounts never loses an existing board.
-    const legacy = currentUserId ? await loadFromDB(DB_KEY) : null
-    merged = hydrate(legacy)
-    fresh = true
-  }
-  storageKey = userKey
-  state = merged
-  snapshot = merged
-  history.length = 0
-  redo.length = 0
+const lastBoardKey = (uid) => `myboard.lastBoard:${uid}`
+
+// Load one board's payload into the store (local cache + cloud mirror).
+async function loadBoardContent(id) {
+  boardRowId = id
+  const local = await applyKey(`board:${id}`)
+  if (currentUserId) localStorage.setItem(lastBoardKey(currentUserId), id)
   localVersion = 0
   pushedVersion = 0
-  emit()
-  setCloudUser(currentUserId)
   let remoteFresh = true
-  if (currentUserId) {
+  if (id) {
     const hadRemote = await pullCloud()
     remoteFresh = !hadRemote
-    // Only upload when there is local content to send; pushing a brand-new
-    // empty board would create an empty row and a spurious realtime ping.
-    if (!hadRemote && !fresh) await pushNow()
+    if (!hadRemote && !local.fresh) await pushNow()
   }
-  return { fresh: fresh && remoteFresh }
+  return { fresh: local.fresh && remoteFresh }
+}
+
+// Sign in: fetch the account's boards (creating a first one if needed) and open
+// the most recently used one.
+export async function loadBoard(userId) {
+  currentUserId = userId || null
+  setCloudUser(currentUserId)
+  let list = []
+  if (currentUserId) {
+    const res = await apiListBoards()
+    if (res && !res.error && Array.isArray(res.boards)) list = res.boards
+    if (!list.length) {
+      const created = await apiCreateBoard('My Board')
+      if (created && !created.error) list = [{ id: created.id, name: created.name, updatedAt: created.updatedAt }]
+    }
+  }
+  boards = list
+  let chosen = null
+  if (currentUserId && list.length) {
+    const last = localStorage.getItem(lastBoardKey(currentUserId))
+    chosen = list.find((b) => b.id === last) || list[0]
+  }
+  let loaded = { fresh: true }
+  if (chosen) loaded = await loadBoardContent(chosen.id)
+  else { boardRowId = null; loaded = await applyKey(DB_KEY) }
+  state = { ...state, boards: list, boardId: chosen ? chosen.id : null, boardName: chosen ? chosen.name : '' }
+  snapshot = state
+  emit()
+  return { fresh: loaded.fresh }
+}
+
+// Switch to another board of the same account.
+export async function openBoard(id) {
+  if (!id || id === boardRowId) return { fresh: false }
+  saveNow()
+  const loaded = await loadBoardContent(id)
+  const meta = boards.find((b) => b.id === id)
+  state = { ...state, boards, boardId: id, boardName: meta ? meta.name : '' }
+  snapshot = state
+  emit()
+  return loaded
+}
+
+// Create a new board and open it.
+export async function createBoard(name) {
+  const res = await apiCreateBoard(name || 'New board')
+  if (!res || res.error) return null
+  boards = [...boards, { id: res.id, name: res.name, updatedAt: res.updatedAt }]
+  await openBoard(res.id)
+  return res
+}
+
+export async function renameBoard(id, name) {
+  const clean = String(name || '').trim().slice(0, 80)
+  if (!clean) return
+  const res = await apiRenameBoard(id, clean)
+  if (res && res.error) return
+  boards = boards.map((b) => (b.id === id ? { ...b, name: clean } : b))
+  state = { ...state, boards, boardName: id === boardRowId ? clean : state.boardName }
+  snapshot = state
+  emit()
+}
+
+export async function deleteBoard(id) {
+  const res = await apiDeleteBoard(id)
+  if (res && res.error) return
+  boards = boards.filter((b) => b.id !== id)
+  try { localStorage.removeItem(`board:${id}`) } catch (e) { /* ignore */ }
+  if (id === boardRowId) {
+    if (boards.length) await openBoard(boards[0].id)
+    else await createBoard('My Board')
+  } else {
+    state = { ...state, boards }
+    snapshot = state
+    emit()
+  }
 }
 
 // Leave the current board (sign-out): stop syncing and blank the canvas.
 export function resetBoard() {
   currentUserId = null
+  boards = []
+  boardRowId = null
   setCloudUser(null)
   storageKey = DB_KEY
   state = defaultState()
@@ -970,6 +1036,7 @@ let cloudTimer = null
 let cloudPushBusy = false
 let cloudSubReady = false
 let cloudEnabled = false
+let cloudUser = null
 let boardRowId = null
 let apiSocketClose = null
 
@@ -977,11 +1044,11 @@ export function hasCloud() {
   return true
 }
 
-// Point cloud sync at a user (or turn it off with null).
+// Point realtime sync at a user (or turn it off with null).
 export function setCloudUser(userId) {
   const next = userId || null
-  if (next === boardRowId) return
-  boardRowId = next
+  if (next === cloudUser) return
+  cloudUser = next
   cloudEnabled = !!next
   stopCloud()
   if (next) startCloud()
@@ -1007,7 +1074,7 @@ export async function pushNow() {
   clearTimeout(cloudTimer)
   cloudTimer = null
   try {
-    const res = await apiPutBoard(cloudPayload())
+    const res = await apiPutBoard(boardRowId, cloudPayload())
     if (res && res.error) {
       console.warn('board sync: push failed', res.error.message)
     } else if (version > pushedVersion) {
@@ -1073,20 +1140,20 @@ export async function stopCloud() {
 }
 
 export async function startCloud() {
-  if (!cloudEnabled || !boardRowId || cloudSubReady) return
-  // Realtime: the Worker pings us, and we re-pull this account's board.
+  if (!cloudEnabled || cloudSubReady) return
+  // Realtime: the Worker pings us, and we re-pull the current board.
   apiSocketClose = apiOpenSocket(() => { pullCloud() })
   cloudSubReady = true
 }
 
-// One-shot pull of this account's board. Returns true when a remote board existed.
+// One-shot pull of the current board. Returns true when a remote board existed.
 export async function pullCloud() {
   if (!cloudEnabled || !boardRowId) return false
   // Don't overwrite local edits that haven't been pushed yet. Our own pushes
   // also trigger realtime pings, so applying a stale remote here would clobber
   // newer local state (e.g. a freshly seeded board).
   if (isDirty()) return false
-  const res = await apiGetBoard()
+  const res = await apiGetBoard(boardRowId)
   if (res && res.error) {
     console.warn('board sync: pull failed', res.error.message)
     return false

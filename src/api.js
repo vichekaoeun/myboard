@@ -40,12 +40,28 @@ export function apiLoginWithGoogle() {
   window.location.assign(API_BASE + '/api/auth/google')
 }
 
-export function apiGetBoard() {
-  return req('GET', '/api/board')
+export function apiListBoards() {
+  return req('GET', '/api/boards')
 }
 
-export function apiPutBoard(payload) {
-  return req('PUT', '/api/board', { payload })
+export function apiCreateBoard(name) {
+  return req('POST', '/api/boards', { name })
+}
+
+export function apiGetBoard(id) {
+  return req('GET', `/api/boards/${id}`)
+}
+
+export function apiPutBoard(id, payload) {
+  return req('PUT', `/api/boards/${id}`, { payload })
+}
+
+export function apiRenameBoard(id, name) {
+  return req('PATCH', `/api/boards/${id}`, { name })
+}
+
+export function apiDeleteBoard(id) {
+  return req('DELETE', `/api/boards/${id}`)
 }
 
 export function apiLinkPreview(url) {

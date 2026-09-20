@@ -40,6 +40,7 @@ export default function App() {
   const musicInputRef = useRef(null)
   const importInputRef = useRef(null)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [boardsOpen, setBoardsOpen] = useState(false)
   const [hoverEnvId, setHoverEnvId] = useState(null)
   const [ctx, setCtx] = useState(null)
   const [help, setHelp] = useState(false)
@@ -136,7 +137,7 @@ export default function App() {
         c.fit({ notes: st.notes, pins: st.pins, envelopes: st.envelopes, clips: st.clips, music: st.music, cards: st.cards })
       }
     }
-  }, [boardReady])
+  }, [boardReady, state.boardId])
 
   // Seed a friendly first board once per account
   useEffect(() => {
@@ -451,6 +452,17 @@ export default function App() {
     window.addEventListener('pointerdown', onPointerDown, true)
     return () => window.removeEventListener('pointerdown', onPointerDown, true)
   }, [moreOpen])
+
+  // Close the board switcher when clicking elsewhere
+  useEffect(() => {
+    if (!boardsOpen) return
+    const onPointerDown = (e) => {
+      if (e.target && e.target.closest && e.target.closest('.tb-boards')) return
+      setBoardsOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    return () => window.removeEventListener('pointerdown', onPointerDown, true)
+  }, [boardsOpen])
 
   // ---- view helpers -----------------------------------------------------------
 
@@ -807,7 +819,30 @@ export default function App() {
       {/* ---------- toolbar ---------- */}
       <div className="tb">
         <div className="tb-brand">
-          <span className="tb-logo" /> <span>My Board</span>
+          <span className="tb-logo" /> <span>SimpleBoard</span>
+        </div>
+
+        <div className="tb-boards">
+          <button className={`tb-board-btn ${boardsOpen ? 'on' : ''}`} onClick={() => setBoardsOpen((v) => !v)} title="Switch board">
+            <span className="tb-board-name">{state.boardName || 'Board'}</span>
+            <span className="tb-caret" aria-hidden="true">▾</span>
+          </button>
+          {boardsOpen && (
+            <div className="tb-menu tb-boards-menu" onPointerDown={(e) => e.stopPropagation()}>
+              {state.boards.map((b) => (
+                <div key={b.id} className={`tb-board-row ${b.id === state.boardId ? 'on' : ''}`}>
+                  <button className="tb-board-open" onClick={() => { setBoardsOpen(false); store.openBoard(b.id) }}>
+                    <span className="tb-board-check">{b.id === state.boardId ? '✓' : ''}</span>
+                    <span className="tb-board-rowname">{b.name}</span>
+                  </button>
+                  <button className="tb-board-mini" title="Rename board" onClick={() => { const v = window.prompt('Rename board', b.name); if (v != null && v.trim()) store.renameBoard(b.id, v.trim()) }}>✎</button>
+                  <button className="tb-board-mini" title="Delete board" onClick={() => { if (window.confirm(`Delete “${b.name}”?`)) store.deleteBoard(b.id) }}>×</button>
+                </div>
+              ))}
+              <div className="tb-menu-div" />
+              <button className="tb-menu-item" onClick={() => { setBoardsOpen(false); const v = window.prompt('New board name', 'New board'); store.createBoard(v && v.trim() ? v.trim() : 'New board') }}>＋ New board</button>
+            </div>
+          )}
         </div>
 
         <div className="tb-tools">
@@ -1099,7 +1134,7 @@ function HelpDialog({ onClose, onFit, onExport }) {
   return (
     <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal">
-        <h2>My Board — how it works</h2>
+        <h2>SimpleBoard — how it works</h2>
         <div className="help-cols">
           <div>
             <h3>Board</h3>

@@ -34,7 +34,7 @@ tag = "v1"
 new_sqlite_classes = ["Room"]
 
 [vars]
-APP_NAME = "My Board"
+APP_NAME = "SimpleBoard"
 # Public origin used to build magic-link and OAuth callback URLs.
 # Override per environment; must match what you deploy to.
 PUBLIC_BASE_URL = "https://myboard.oeunvicheka95.workers.dev"

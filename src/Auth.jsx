@@ -59,7 +59,7 @@ export function AuthGate({ onGoogle, onEmail, loadProviders }) {
     <div className="auth-screen">
       <div className="auth-card">
         <span className="auth-pin" aria-hidden="true" />
-        <h1 className="auth-title">My Board</h1>
+        <h1 className="auth-title">SimpleBoard</h1>
         <p className="auth-sub">Sign in to open your corkboard.</p>
 
         {showGoogle && (

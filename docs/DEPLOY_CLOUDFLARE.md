@@ -1,4 +1,4 @@
-# Deploying My Board on Cloudflare (Workers + D1 + Durable Objects)
+# Deploying SimpleBoard on Cloudflare (Workers + D1 + Durable Objects)
 
 One Worker serves both the static SPA (`./dist`) and the `/api/*` backend:
 
