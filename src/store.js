@@ -60,9 +60,36 @@ function markLocalChange() {
 function maybeSendActivity() {
   if (!apiSocket) return
   const now = Date.now()
-  if (now - lastActivityAt < 1200) return
-  lastActivityAt = now
-  apiSocket.send(JSON.stringify({ t: 'activity', what: 'edited' }))
+  if (now - lastActivityAt >= 1200) {
+    lastActivityAt = now
+    apiSocket.send(JSON.stringify({ t: 'activity', what: 'edited' }))
+  }
+  // Keep our selection/caret fresh while we work (typing moves nothing).
+  sendCursor()
+}
+
+function sendCursor() {
+  if (!apiSocket) return
+  apiSocket.send(JSON.stringify({
+    t: 'cursor',
+    wx: lastPointer.wx,
+    wy: lastPointer.wy,
+    sel: (state.selectedIds || []).slice(0, 25),
+  }))
+}
+
+// Called as the local pointer moves over the board.
+export function reportCursor(wx, wy) {
+  lastPointer = { wx, wy }
+  const now = Date.now()
+  if (now - lastCursorAt < 120) return
+  lastCursorAt = now
+  sendCursor()
+}
+
+// Selection changed: share it right away so others see what we're on.
+function reportSelection() {
+  sendCursor()
 }
 
 // Display identity for presence. `id` should be unique per browser tab.
@@ -83,12 +110,64 @@ export function onActivity(fn) {
 
 function setPeers(next) {
   peers = Array.isArray(next) ? next : []
-  state = { ...state, peers }
+  // Drop cursors for anyone who has left.
+  const live = new Set(peers.map((p) => p.id))
+  let changed = false
+  const pruned = {}
+  for (const [id, c] of Object.entries(cursors)) {
+    if (live.has(id)) pruned[id] = c
+    else { changed = true; clearTimeout(cursorClearTimers.get(id)); cursorClearTimers.delete(id) }
+  }
+  if (changed) cursors = pruned
+  state = { ...state, peers, cursors }
   emit()
 }
 
+function setCursors() {
+  state = { ...state, cursors }
+  emit()
+}
+
+// A peer's caret moved / selection changed.
+function applyCursor(msg) {
+  const peer = msg.peer || {}
+  if (!peer.id) return
+  if (self && peer.id === self.id) return
+  const prev = cursors[peer.id]
+  cursors = {
+    ...cursors,
+    [peer.id]: {
+      id: peer.id,
+      name: peer.name || (prev && prev.name) || 'Guest',
+      color: peer.color || (prev && prev.color) || '#8a7a63',
+      wx: msg.wx,
+      wy: msg.wy,
+      sel: Array.isArray(msg.sel) ? msg.sel : [],
+      editing: true,
+    },
+  }
+  clearTimeout(cursorClearTimers.get(peer.id))
+  cursorClearTimers.set(peer.id, setTimeout(() => {
+    const c = cursors[peer.id]
+    if (!c) return
+    cursors = { ...cursors, [peer.id]: { ...c, editing: false } }
+    setCursors()
+  }, 3500))
+  setCursors()
+}
+
+function dropCursor(id) {
+  if (!cursors[id]) return
+  const next = { ...cursors }
+  delete next[id]
+  cursors = next
+  clearTimeout(cursorClearTimers.get(id))
+  cursorClearTimers.delete(id)
+  setCursors()
+}
+
 // Incoming socket messages: a plain "changed" ping means re-pull; JSON carries
-// presence and activity.
+// presence, activity and cursors.
 function handleSocketData(data) {
   if (data === 'changed' || typeof data !== 'string') {
     pullCloud()
@@ -105,8 +184,13 @@ function handleSocketData(data) {
     setPeers(msg.peers)
     return
   }
+  if (msg.t === 'cursor') {
+    applyCursor(msg)
+    return
+  }
   if (msg.t === 'activity') {
-    if (activityCb && msg.peer && msg.what !== 'joined' && msg.what !== 'left') {
+    if (msg.what === 'left' && msg.peer) { dropCursor(msg.peer.id); return }
+    if (activityCb && msg.peer && msg.what !== 'joined') {
       if (!self || msg.peer.id !== self.id) activityCb(msg)
     }
   }
@@ -155,6 +239,7 @@ function defaultState() {
     boardId: null,
     boardName: '',
     peers: [],
+    cursors: {},
   }
 }
 
@@ -207,6 +292,7 @@ function hydrate(saved) {
         selected: null,
         selectedIds: [],
         peers: [],
+        cursors: {},
         view: { ...base.view, ...(saved.view || {}) },
       }
     : base
@@ -563,6 +649,7 @@ export function select(id) {
   if (state.selected === (id || null) && cur.length === next.length && cur.every((x, i) => x === next[i])) return
   state = { ...state, selected: id || null, selectedIds: next }
   emit()
+  reportSelection()
 }
 
 export function toggleSelect(id) {
@@ -575,6 +662,7 @@ export function toggleSelect(id) {
     selected: has ? (next.length ? next[next.length - 1] : null) : id,
   }
   emit()
+  reportSelection()
 }
 
 export function selectMany(ids) {
@@ -583,12 +671,14 @@ export function selectMany(ids) {
   if (cur.length === next.length && cur.every((x, i) => x === next[i])) return
   state = { ...state, selectedIds: next, selected: next.length ? next[next.length - 1] : null }
   emit()
+  reportSelection()
 }
 
 export function clearSelection() {
   if ((state.selectedIds || []).length === 0 && !state.selected) return
   state = { ...state, selected: null, selectedIds: [] }
   emit()
+  reportSelection()
 }
 
 export function setMode(mode) {
@@ -1171,6 +1261,11 @@ let self = null
 let peers = []
 let activityCb = null
 let lastActivityAt = 0
+// Where other people are: their pointer (world coords) and current selection.
+let cursors = {}
+const cursorClearTimers = new Map()
+let lastPointer = { wx: 0, wy: 0 }
+let lastCursorAt = 0
 // When set, the store is viewing a board through a public share link rather
 // than the owner's account. `sharedMode` is 'view' (read-only) or 'edit'.
 let sharedToken = null

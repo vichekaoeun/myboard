@@ -57,9 +57,16 @@ export class Room {
     server.addEventListener('message', (ev) => {
       let msg = null
       try { msg = JSON.parse(ev.data) } catch (e) { return }
-      if (msg && msg.t === 'activity') {
+      if (!msg) return
+      if (msg.t === 'activity') {
         const what = clean(msg.what, 20) || 'edited'
         this.broadcast(JSON.stringify({ t: 'activity', what, peer }))
+      } else if (msg.t === 'cursor') {
+        const wx = Number(msg.wx)
+        const wy = Number(msg.wy)
+        const sel = Array.isArray(msg.sel) ? msg.sel.filter((s) => typeof s === 'string').slice(0, 25) : []
+        if (!isFinite(wx) || !isFinite(wy)) return
+        this.broadcast(JSON.stringify({ t: 'cursor', peer, wx, wy, sel }))
       }
     })
 

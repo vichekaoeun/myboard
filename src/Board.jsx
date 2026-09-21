@@ -15,13 +15,28 @@ export default function Board({
   onSelect, onPointerSelect, onSelectMany, onChange, onLiveHeight, onEnvChange, onMoveEnd, onEnvMoveEnd, onPinMoveEnd, onClipMoveEnd, onClipResizeEnd, onMusicMoveEnd, onMusicResizeEnd, onCardMoveEnd, onCardResizeEnd, onOpenCard, onFanDrop, onDragMove,
   onAddNote, onAddPin, onAddClip, onAddEnvelope, onToggleEnvelope,
   onCtxBackground, onCtxItem, onEditLocation, onResizeLocation, onLinkClick, onOpenLink, onCtxLink, hoverEnvId,
-  readonly = false,
+  readonly = false, cursors = {}, onReportCursor,
 }) {
   const pan = useRef(null)
   const spaceRef = useRef(false)
   const [marquee, setMarquee] = useState(null)
   const isSel = useMemo(() => new Set(selectedIds), [selectedIds])
   const noteById = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes])
+  // Bounds for every item, so we can outline whatever a collaborator has
+  // selected (their "editing here" indicator).
+  const boundsById = useMemo(() => {
+    const m = new Map()
+    notes.forEach((n) => m.set(n.id, { x: n.x, y: n.y, w: n.w || 250, h: n.h || 300 }))
+    envelopes.forEach((e) => m.set(e.id, { x: e.x, y: e.y, w: e.w || 300, h: e.h || 210 }))
+    clips.forEach((c) => m.set(c.id, { x: c.x, y: c.y, w: c.w || 220, h: c.h || 180 }))
+    music.forEach((x) => m.set(x.id, { x: x.x, y: x.y, w: x.w || 320, h: x.h || 180 }))
+    cards.forEach((c) => m.set(c.id, { x: c.x, y: c.y, w: c.w || 300, h: c.h || 300 }))
+    pins.forEach((p) => m.set(p.id, { x: p.x - 23, y: p.y - 88, w: 46, h: 92 }))
+    return m
+  }, [notes, envelopes, clips, music, cards, pins])
+  const collab = useMemo(() => Object.values(cursors || {}), [cursors])
+  // Keep collaborator labels a constant on-screen size regardless of zoom.
+  const invZoom = 1 / ((getZoom && getZoom()) || 1)
   // Strings present when the board opened shouldn't "draw in"; only ones added
   // during this session animate. This ref is seeded once on first render.
   const initialLinksRef = useRef(null)
@@ -182,6 +197,7 @@ export default function Board({
       ref={containerRef}
       className={`board ${mode === 'link' ? 'linking' : ''} ${readonly ? 'readonly' : ''}`}
       onPointerDown={handleBgPointerDown}
+      onPointerMove={onReportCursor ? (e) => { const w = worldAt(e); onReportCursor(w.x, w.y) } : undefined}
       onDoubleClick={(e) => {
         if (readonly) return
         if (!e.target.closest('.note,.envelope,.pin-item,.music-item')) {
@@ -392,6 +408,35 @@ export default function Board({
             onResizeLocation={onResizeLocation}
             onContextMenu={onCtxItem}
           />
+        ))}
+
+        {/* collaborators: their caret + whatever they have selected */}
+        {collab.map((c) => (
+          <React.Fragment key={c.id}>
+            {(c.sel || []).map((id) => {
+              const b = boundsById.get(id)
+              if (!b) return null
+              return (
+                <div
+                  key={'sel-' + id}
+                  className="collab-sel"
+                  style={{ left: b.x - 5, top: b.y - 5, width: b.w + 10, height: b.h + 10, borderColor: c.color }}
+                >
+                  {c.editing ? (
+                    <span className="collab-tag" style={{ background: c.color, transform: `scale(${invZoom})`, transformOrigin: '0 100%' }}>{c.name}</span>
+                  ) : null}
+                </div>
+              )
+            })}
+            <div className="collab-cursor" style={{ left: c.wx, top: c.wy }}>
+              <div className="collab-inner" style={{ transform: `scale(${invZoom})` }}>
+                <svg width="20" height="22" viewBox="0 0 20 22" aria-hidden="true">
+                  <path d="M2 2l15 7.5-6.3 1.5L8 20 2 2z" fill={c.color} stroke="#fff" strokeWidth="1.2" strokeLinejoin="round" />
+                </svg>
+                <span className="collab-tag" style={{ background: c.color }}>{c.name}{c.editing ? ' · editing' : ''}</span>
+              </div>
+            </div>
+          </React.Fragment>
         ))}
       </div>
       </div>

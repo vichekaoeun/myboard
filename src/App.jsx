@@ -913,6 +913,8 @@ export default function App() {
         hoverEnvId={hoverEnvId}
         getZoom={getZoom}
         readonly={readonly}
+        cursors={state.cursors || {}}
+        onReportCursor={store.reportCursor}
       />
 
       {/* ---------- toolbar ---------- */}
@@ -1073,12 +1075,21 @@ export default function App() {
 
       {state.peers && state.peers.some((p) => p.id !== PEER_ID) && (
         <div className="presence-bar" aria-label="People on this board">
-          {state.peers.filter((p) => p.id !== PEER_ID).map((p) => (
-            <span key={p.id} className="peer-chip" title={p.name}>
-              <span className="peer-avatar" style={{ background: p.color || '#8a7a63' }}>{initials(p.name)}</span>
-              <span className="peer-label">{p.name}</span>
-            </span>
-          ))}
+          {state.peers.filter((p) => p.id !== PEER_ID).map((p) => {
+            const live = state.cursors && state.cursors[p.id] && state.cursors[p.id].editing
+            return (
+              <span
+                key={p.id}
+                className={`peer-chip ${live ? 'editing' : ''}`}
+                style={{ '--c': p.color || '#8a7a63' }}
+                title={live ? `${p.name} is editing` : p.name}
+              >
+                <span className="peer-avatar" style={{ background: p.color || '#8a7a63' }}>{initials(p.name)}</span>
+                <span className="peer-label">{p.name}</span>
+                {live && <span className="peer-editing">editing</span>}
+              </span>
+            )
+          })}
         </div>
       )}
 
