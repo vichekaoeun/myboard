@@ -246,6 +246,18 @@ export default function App() {
     if (state.mode !== 'link') { linkFromRef.current = null; setLinkFrom(null) }
   }, [state.mode])
 
+  // A shared board switching to view-only mid-edit: close the open editor,
+  // format bar and menus so nothing stays editable.
+  useEffect(() => {
+    if (!readonly) return
+    store.clearSelection()
+    setCtx(null)
+    setLocationEditor(null)
+    setMusicEditor(null)
+    const el = typeof document !== 'undefined' ? document.activeElement : null
+    if (el && el.blur) el.blur()
+  }, [readonly])
+
   // ---- stable callbacks ------------------------------------------------------
 
   const getZoom = useCallback(() => (cameraRef.current ? cameraRef.current.v.s : 1), [])

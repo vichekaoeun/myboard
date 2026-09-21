@@ -16,7 +16,7 @@ export default memo(function NoteView({
   item, x, y, scale = 1, rotation, tick,
   selected, primary, mode, getZoom, linkSource, connections,
   onPointerSelect, onChange, onLiveHeight, onMoveEnd, onDrop, onDragMove, onContextMenu, z,
-  onAddClip, onLinkClick, onOpenLink,
+  onAddClip, onLinkClick, onOpenLink, readonly = false,
 }) {
   const wrapRef = useRef(null)
   const paperRef = useRef(null)
@@ -303,7 +303,7 @@ export default memo(function NoteView({
           <div
             ref={edRef}
             className="note-ed"
-            contentEditable
+            contentEditable={!readonly}
             suppressContentEditableWarning
             spellCheck={false}
             data-placeholder="Jot something down…"
@@ -326,7 +326,7 @@ export default memo(function NoteView({
           <div className="note-pin-handle" onPointerDown={startDrag} onClick={(e) => e.stopPropagation()}>
             <PushPin color="#e95d5d" size={Math.max(26, 34)} />
           </div>
-          {primary && mode !== 'fan' && (
+          {primary && !readonly && mode !== 'fan' && (
             <div className="note-formatbar" onMouseDown={(e) => {
               rememberSelection()
               if (e.target.tagName !== 'SELECT') e.preventDefault()
@@ -357,7 +357,7 @@ export default memo(function NoteView({
               <button title="Clear formatting" onClick={() => format('removeFormat')}>Tx</button>
             </div>
           )}
-          {primary && mode !== 'fan' && connections && (connections.from.length > 0 || connections.to.length > 0) && (
+          {primary && !readonly && mode !== 'fan' && connections && (connections.from.length > 0 || connections.to.length > 0) && (
             <div className="note-links" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
               {connections.from.length > 0 && (
                 <>
@@ -387,7 +387,7 @@ export default memo(function NoteView({
               )}
             </div>
           )}
-          {primary && mode !== 'fan' && (
+          {primary && !readonly && mode !== 'fan' && (
             <div className="note-resize">
               <div className="resize-nw" onPointerDown={(e) => startResize(e, 'nw')} />
               <div className="resize-ne" onPointerDown={(e) => startResize(e, 'ne')} />

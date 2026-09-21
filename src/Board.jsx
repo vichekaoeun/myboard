@@ -284,6 +284,7 @@ export default function Board({
             primary={selected === env.id}
             dropActive={hoverEnvId === env.id}
             getZoom={getZoom}
+            readonly={readonly}
             onPointerSelect={onPointerSelect}
             onChange={onEnvChange}
             onMoveEnd={onEnvMoveEnd}
@@ -309,6 +310,7 @@ export default function Board({
                 scale={p.scale}
                 rotation={p.rotation}
                 mode="fan"
+                readonly={readonly}
                 z={44}
                 tick={tick}
                 getZoom={getZoom}
@@ -336,6 +338,7 @@ export default function Board({
             selected={isSel.has(note.id)}
             primary={selected === note.id}
             mode={mode}
+            readonly={readonly}
             linkSource={linkFrom === note.id}
             connections={selected === note.id ? connections : null}
             tick={tick}

@@ -30,7 +30,7 @@ export function fanPoses(env, noteIds, notes) {
 
 export default memo(function EnvelopeView({
   env, selected, primary, dropActive, getZoom,
-  onPointerSelect, onChange, onMoveEnd, onToggle, onContextMenu,
+  onPointerSelect, onChange, onMoveEnd, onToggle, onContextMenu, readonly = false,
 }) {
   const wrapRef = useRef(null)
   const drag = useRef(null)
@@ -187,7 +187,7 @@ return (
       {!env.expanded && (
         <div
           className="env-title"
-          contentEditable
+          contentEditable={!readonly}
           suppressContentEditableWarning
           ref={titleRef}
           onBlur={commitTitle}
