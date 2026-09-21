@@ -94,9 +94,9 @@ export function apiLinkPreview(url) {
   return req('GET', `/api/link-preview?url=${encodeURIComponent(url)}`)
 }
 
-// Live updates: the Worker pings "changed" whenever this account's board is
-// saved elsewhere, and we simply re-pull. Auto-reconnects while mounted.
-function openSocket(path, onChange) {
+// Live updates: the Worker pings "changed" whenever the board is saved, and
+// streams presence/activity. Auto-reconnects while mounted.
+function openSocket(path, onMessage) {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const host = API_BASE ? new URL(API_BASE, window.location.href).host : window.location.host
   let ws = null
@@ -106,7 +106,7 @@ function openSocket(path, onChange) {
     if (closed) return
     try {
       ws = new WebSocket(`${proto}://${host}${path}`)
-      ws.onmessage = () => onChange()
+      ws.onmessage = (e) => onMessage(e.data)
       ws.onclose = () => { if (!closed) setTimeout(connect, 3000) }
       ws.onerror = () => { try { ws.close() } catch (e) {} }
     } catch (e) {
@@ -115,16 +115,29 @@ function openSocket(path, onChange) {
   }
   connect()
 
-  return () => {
-    closed = true
-    if (ws) { ws.onclose = null; try { ws.close() } catch (e) {} }
+  return {
+    send: (msg) => { try { if (ws && ws.readyState === 1) ws.send(msg) } catch (e) {} },
+    close: () => {
+      closed = true
+      if (ws) { ws.onclose = null; try { ws.close() } catch (e) {} }
+    },
   }
 }
 
-export function apiOpenSocket(onChange) {
-  return openSocket('/api/ws', onChange)
+function peerQuery(self) {
+  const q = new URLSearchParams()
+  if (self) {
+    if (self.id) q.set('uid', self.id)
+    if (self.kind) q.set('kind', self.kind)
+    if (self.name) q.set('name', self.name)
+  }
+  return q.toString()
 }
 
-export function apiOpenShareSocket(token, onChange) {
-  return openSocket(`/api/share/${token}/ws`, onChange)
+export function apiOpenBoardSocket(boardId, self, onMessage) {
+  return openSocket(`/api/boards/${boardId}/ws?${peerQuery(self)}`, onMessage)
+}
+
+export function apiOpenShareSocket(token, self, onMessage) {
+  return openSocket(`/api/share/${token}/ws?${peerQuery(self)}`, onMessage)
 }

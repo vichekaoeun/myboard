@@ -23,6 +23,27 @@ const TOOLS = [
 
 const FREE_BOARD_LIMIT = 3
 
+// Stable id for this browser tab, used to identify our own presence entry.
+function tabPeerId() {
+  try {
+    let id = sessionStorage.getItem('myboard.peerId')
+    if (!id) {
+      id = Math.random().toString(36).slice(2, 10)
+      sessionStorage.setItem('myboard.peerId', id)
+    }
+    return id
+  } catch (e) {
+    return 'p' + Math.random().toString(36).slice(2, 10)
+  }
+}
+const PEER_ID = tabPeerId()
+
+function initials(name) {
+  const parts = String(name || '?').trim().split(/\s+/).filter(Boolean).slice(0, 2)
+  const s = parts.map((w) => (w[0] || '').toUpperCase()).join('')
+  return s || '?'
+}
+
 const PAPER_COLORS = [
   { id: 'white', label: 'Cream', swatch: '#fdfaf1' },
   { id: 'yellow', label: 'Canary', swatch: '#fff8c4' },
@@ -92,6 +113,12 @@ export default function App() {
       return
     }
     loadedUserRef.current = user.id
+    // Identify ourselves to the board room (display only).
+    store.setSelfIdentity({
+      id: PEER_ID,
+      kind: 'user',
+      name: user.name || (user.email ? user.email.split('@')[0] : 'You'),
+    })
     await store.loadBoard(user.id)
     setSession(user); setBoardReady(true); setAuthChecked(true)
   }, [])
@@ -106,6 +133,8 @@ export default function App() {
         setBoardReady(false)
         setShareError('This shared board is no longer available.')
       })
+      // Identify ourselves to the board room (display only).
+      store.setSelfIdentity({ id: PEER_ID, kind: 'guest', name: guestName || '' })
       store.loadShared(shareToken).then((res) => {
         if (!active) return
         if (res && res.error) {
@@ -229,6 +258,14 @@ export default function App() {
     clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToast(''), 2400)
   }, [])
+
+  // "Guest 2 is editing" style notices from other people on the board.
+  useEffect(() => {
+    store.onActivity((msg) => {
+      const verb = msg.what === 'edited' ? 'is editing' : msg.what
+      say(`${msg.peer.name} ${verb}`)
+    })
+  }, [say])
 
   // Two-click linking: pick a note, then the note to tie it to.
   const handleLinkClick = useCallback((id) => {
@@ -1018,6 +1055,7 @@ export default function App() {
                   setGuestName(v)
                   try { localStorage.setItem('myboard.guestName', v) } catch (err) {}
                 }}
+                onBlur={() => store.setSelfIdentity({ name: guestName.trim() })}
                 placeholder="Your name"
                 spellCheck={false}
               />
@@ -1030,6 +1068,17 @@ export default function App() {
               <button className="icon-btn" onClick={() => cameraRef.current?.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.25)} title="Zoom in"><ZoomInIcon size={15} /></button>
             </span>
           )}
+        </div>
+      )}
+
+      {state.peers && state.peers.some((p) => p.id !== PEER_ID) && (
+        <div className="presence-bar" aria-label="People on this board">
+          {state.peers.filter((p) => p.id !== PEER_ID).map((p) => (
+            <span key={p.id} className="peer-chip" title={p.name}>
+              <span className="peer-avatar" style={{ background: p.color || '#8a7a63' }}>{initials(p.name)}</span>
+              <span className="peer-label">{p.name}</span>
+            </span>
+          ))}
         </div>
       )}
 

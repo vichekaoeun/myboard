@@ -140,10 +140,10 @@ async function saveBoard(request, env, user, row) {
   await env.DB
     .prepare('UPDATE boards SET payload = ?, updated_at = ? WHERE id = ? AND user_id = ?')
     .bind(body.payload, now, row.id, user.id).run()
-  // Broadcast to this account's other devices, and to anyone viewing the
-  // shared link for this board.
+  // Broadcast to this account's other devices, and to everyone (owner or
+  // guests) currently viewing this board, so they re-pull and update presence.
+  await notifyRoom(env, boardRoomName(row.id))
   await notifyRoom(env, user.id)
-  if (row.share_token) await notifyRoom(env, boardRoomName(row.id))
   return json({ ok: true, updatedAt: now })
 }
 
@@ -162,7 +162,20 @@ async function deleteBoard(env, user, row) {
   return json({ ok: true })
 }
 
-export async function boardSocket(request, env, user) {
+// Live socket for the board the owner is editing (board-scoped, so presence is
+// per-board and the owner sees guests on a shared board).
+export async function boardSocket(request, env, user, boardId) {
+  if (!boardId) return new Response('Not found', { status: 404 })
+  const row = await env.DB
+    .prepare('SELECT id FROM boards WHERE id = ? AND user_id = ?')
+    .bind(boardId, user.id).first()
+  if (!row) return new Response('Not found', { status: 404 })
+  const stub = env.ROOM.get(env.ROOM.idFromName(boardRoomName(boardId)))
+  return stub.fetch(request)
+}
+
+// Account-scoped socket (kept for compatibility; clients now use board sockets).
+export async function accountSocket(request, env, user) {
   const stub = env.ROOM.get(env.ROOM.idFromName(user.id))
   return stub.fetch(request)
 }

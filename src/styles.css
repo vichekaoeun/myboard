@@ -2000,6 +2000,46 @@ body.mb-selecting * { user-select: none !important; }
 
 .board-shared { color: var(--accent); }
 
+/* ---------- presence ---------- */
+.presence-bar {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: rgba(32, 27, 21, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  color: #f2e8d9;
+  max-width: min(60vw, 520px);
+  overflow-x: auto;
+}
+.peer-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px 2px 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font: 600 12.5px 'Inter', system-ui, sans-serif;
+  white-space: nowrap;
+}
+.peer-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font: 700 10.5px 'Inter', system-ui, sans-serif;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.25);
+}
+.peer-label { color: rgba(255, 240, 220, 0.9); }
+
 .share-error { min-height: 100vh; display: grid; place-items: center; background: #2a1d12; color: #f6ecd8; }
 .share-error-card { text-align: center; padding: 32px; border-radius: 16px; background: rgba(255, 255, 255, 0.05); max-width: 380px; }
 .share-error-card h2 { margin: 14px 0 6px; }

@@ -1,41 +1,91 @@
-// One Durable Object per account. Holds the live WebSocket connections for that
-// account and broadcasts a "changed" ping whenever the board is saved, so other
-// open devices re-pull the latest board.
+// One Durable Object per account (and per shared board). Holds the live
+// WebSocket connections for that room, broadcasts a "changed" ping when the
+// board is saved, and tracks who is present so clients can show collaborators.
+//
+// Identity is carried in the socket URL as query params (uid/kind/name). It is
+// display-only — the HTTP endpoints still enforce real access control.
 
 export class Room {
   constructor(state, env) {
     this.state = state
     this.env = env
-    this.sessions = new Set()
+    this.sessions = new Map() // WebSocket -> peer
   }
 
   async fetch(request) {
     const url = new URL(request.url)
 
     if (url.pathname.endsWith('/notify')) {
-      for (const ws of this.sessions) {
-        try { ws.send('changed') } catch (e) { this.sessions.delete(ws) }
-      }
+      this.broadcast('changed')
       return new Response('ok')
     }
 
     if ((request.headers.get('Upgrade') || '').toLowerCase() === 'websocket') {
+      const peer = {
+        id: clean(url.searchParams.get('uid'), 64) || crypto.randomUUID(),
+        kind: url.searchParams.get('kind') === 'user' ? 'user' : 'guest',
+        name: clean(url.searchParams.get('name'), 40),
+      }
+      if (peer.kind === 'guest' && !peer.name) {
+        const seq = ((await this.state.storage.get('guestSeq')) || 0) + 1
+        await this.state.storage.put('guestSeq', seq)
+        peer.name = 'Guest ' + seq
+      }
+      if (!peer.name) peer.name = peer.kind === 'user' ? 'Someone' : 'Guest'
+      peer.color = colorFor(peer.id)
+
       const pair = new WebSocketPair()
-      const client = pair[0]
-      const server = pair[1]
-      this.accept(server)
-      return new Response(null, { status: 101, webSocket: client })
+      this.accept(pair[1], peer)
+      return new Response(null, { status: 101, webSocket: pair[0] })
     }
 
     return new Response('Not found', { status: 404 })
   }
 
-  accept(server) {
+  accept(server, peer) {
     server.accept()
-    this.sessions.add(server)
-    const drop = () => this.sessions.delete(server)
+    this.sessions.set(server, peer)
+
+    const drop = () => {
+      if (!this.sessions.has(server)) return
+      this.sessions.delete(server)
+      this.broadcast(JSON.stringify({ t: 'activity', what: 'left', peer }))
+      this.sendPresence()
+    }
     server.addEventListener('close', drop)
     server.addEventListener('error', drop)
-    server.addEventListener('message', () => { /* client -> server unused */ })
+    server.addEventListener('message', (ev) => {
+      let msg = null
+      try { msg = JSON.parse(ev.data) } catch (e) { return }
+      if (msg && msg.t === 'activity') {
+        const what = clean(msg.what, 20) || 'edited'
+        this.broadcast(JSON.stringify({ t: 'activity', what, peer }))
+      }
+    })
+
+    this.broadcast(JSON.stringify({ t: 'activity', what: 'joined', peer }))
+    this.sendPresence()
   }
+
+  sendPresence() {
+    this.broadcast(JSON.stringify({ t: 'presence', peers: [...this.sessions.values()] }))
+  }
+
+  broadcast(data) {
+    for (const ws of [...this.sessions.keys()]) {
+      try { ws.send(data) } catch (e) { this.sessions.delete(ws) }
+    }
+  }
+}
+
+function clean(v, max) {
+  if (typeof v !== 'string') return ''
+  return v.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max)
+}
+
+// Stable display colour derived from the peer id.
+function colorFor(id) {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360
+  return `hsl(${h} 58% 52%)`
 }

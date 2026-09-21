@@ -2,7 +2,7 @@
 
 import {
   apiCreateBoard, apiDeleteBoard, apiGetBoard, apiGetShare, apiListBoards,
-  apiOpenShareSocket, apiOpenSocket, apiPutBoard, apiPutShare, apiRenameBoard,
+  apiOpenBoardSocket, apiOpenShareSocket, apiPutBoard, apiPutShare, apiRenameBoard,
 } from './api.js'
 
 const DB_NAME = 'myboard'
@@ -51,7 +51,66 @@ let boards = []
 // (our own pushes also trigger pings, which could otherwise clobber newer edits).
 let localVersion = 0
 let pushedVersion = 0
-function markLocalChange() { localVersion++ }
+function markLocalChange() {
+  localVersion++
+  maybeSendActivity()
+}
+
+// Tell the room we're editing (throttled) so others get an activity notice.
+function maybeSendActivity() {
+  if (!apiSocket) return
+  const now = Date.now()
+  if (now - lastActivityAt < 1200) return
+  lastActivityAt = now
+  apiSocket.send(JSON.stringify({ t: 'activity', what: 'edited' }))
+}
+
+// Display identity for presence. `id` should be unique per browser tab.
+export function setSelfIdentity(next) {
+  const merged = { ...(self || {}), ...(next || {}) }
+  if (self && merged.id === self.id && merged.name === self.name && merged.kind === self.kind) return
+  self = merged
+  ensureSocket()
+}
+
+export function getPeers() {
+  return peers
+}
+
+export function onActivity(fn) {
+  activityCb = fn
+}
+
+function setPeers(next) {
+  peers = Array.isArray(next) ? next : []
+  state = { ...state, peers }
+  emit()
+}
+
+// Incoming socket messages: a plain "changed" ping means re-pull; JSON carries
+// presence and activity.
+function handleSocketData(data) {
+  if (data === 'changed' || typeof data !== 'string') {
+    pullCloud()
+    return
+  }
+  if (data[0] !== '{') {
+    pullCloud()
+    return
+  }
+  let msg = null
+  try { msg = JSON.parse(data) } catch (e) { pullCloud(); return }
+  if (!msg || !msg.t) { pullCloud(); return }
+  if (msg.t === 'presence') {
+    setPeers(msg.peers)
+    return
+  }
+  if (msg.t === 'activity') {
+    if (activityCb && msg.peer && msg.what !== 'joined' && msg.what !== 'left') {
+      if (!self || msg.peer.id !== self.id) activityCb(msg)
+    }
+  }
+}
 function isDirty() { return localVersion > pushedVersion }
 
 export const NOTE_COLORS = {
@@ -95,6 +154,7 @@ function defaultState() {
     boards: [],
     boardId: null,
     boardName: '',
+    peers: [],
   }
 }
 
@@ -146,6 +206,7 @@ function hydrate(saved) {
         links: Array.isArray(saved.links) ? saved.links : [],
         selected: null,
         selectedIds: [],
+        peers: [],
         view: { ...base.view, ...(saved.view || {}) },
       }
     : base
@@ -241,6 +302,8 @@ async function loadBoardContent(id) {
     remoteFresh = !hadRemote
     if (!hadRemote && !local.fresh) await pushNow()
   }
+  // Point realtime (and presence) at this board.
+  ensureSocket()
   return { fresh: local.fresh && remoteFresh }
 }
 
@@ -361,8 +424,7 @@ export async function loadShared(token) {
   pushedVersion = 0
   cloudUser = 'share:' + token
   cloudEnabled = true
-  stopCloud()
-  startCloud()
+  ensureSocket()
   emit()
   return { ok: true, mode: sharedMode, name: res.name || 'Shared board' }
 }
@@ -1101,8 +1163,14 @@ let cloudSubReady = false
 let cloudEnabled = false
 let cloudUser = null
 let boardRowId = null
-let apiSocketClose = null
+let apiSocket = null
 let sharePollTimer = null
+// Presence: our own identity (display only) and the peers currently in the
+// room. `activityCb` lets the UI show "X is editing" style notices.
+let self = null
+let peers = []
+let activityCb = null
+let lastActivityAt = 0
 // When set, the store is viewing a board through a public share link rather
 // than the owner's account. `sharedMode` is 'view' (read-only) or 'edit'.
 let sharedToken = null
@@ -1220,10 +1288,19 @@ function applyRemote(rawPayload) {
 export async function stopCloud() {
   cloudSubReady = false
   stopSharePoll()
-  if (apiSocketClose) {
-    try { apiSocketClose() } catch (e) {}
-    apiSocketClose = null
+  if (apiSocket) {
+    try { apiSocket.close() } catch (e) {}
+    apiSocket = null
   }
+  setPeers([])
+}
+
+// (Re)connect the realtime socket for whatever we're currently looking at.
+function ensureSocket() {
+  if (!cloudEnabled) return
+  if (!sharedToken && !boardRowId) return
+  stopCloud()
+  startCloud()
 }
 
 // Shared-board fallback poll: the WebSocket is instant when it works, but a
@@ -1247,13 +1324,17 @@ function startSharePoll() {
 
 export async function startCloud() {
   if (!cloudEnabled || cloudSubReady) return
-  // Realtime: the Worker pings us, and we re-pull the current board.
-  apiSocketClose = sharedToken
-    ? apiOpenShareSocket(sharedToken, () => { pullCloud() })
-    : apiOpenSocket(() => { pullCloud() })
+  // Realtime: the Worker pings us, and we re-pull the current board. The
+  // socket is board-scoped so it also carries who else is on this board.
+  if (sharedToken) {
+    apiSocket = apiOpenShareSocket(sharedToken, self, handleSocketData)
+    startSharePoll()
+  } else if (boardRowId) {
+    apiSocket = apiOpenBoardSocket(boardRowId, self, handleSocketData)
+  } else {
+    return
+  }
   cloudSubReady = true
-  // A shared viewer also polls, so live updates survive a dropped socket.
-  if (sharedToken) startSharePoll()
 }
 
 // One-shot pull of the current board. Returns true when a remote board existed.
