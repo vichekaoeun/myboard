@@ -399,6 +399,7 @@ export async function loadBoard(userId) {
   currentUserId = userId || null
   sharedToken = null
   sharedMode = 'view'
+  sharedName = ''
   setCloudUser(currentUserId)
   let list = []
   if (currentUserId) {
@@ -429,6 +430,7 @@ export async function openBoard(id) {
   if (!id || id === boardRowId) return { fresh: false }
   sharedToken = null
   sharedMode = 'view'
+  sharedName = ''
   saveNow()
   const loaded = await loadBoardContent(id)
   const meta = boards.find((b) => b.id === id)
@@ -494,6 +496,7 @@ export async function loadShared(token) {
   boardRowId = null
   sharedToken = token
   sharedMode = res.mode === 'edit' ? 'edit' : 'view'
+  sharedName = res.name || 'Shared board'
   await applyKey(`share:${token}`)
   let parsed = null
   try { parsed = JSON.parse(res.payload) } catch (e) { parsed = null }
@@ -522,6 +525,7 @@ export function resetBoard() {
   boardRowId = null
   sharedToken = null
   sharedMode = 'view'
+  sharedName = ''
   setCloudUser(null)
   storageKey = DB_KEY
   state = defaultState()
@@ -1270,6 +1274,8 @@ let lastCursorAt = 0
 // than the owner's account. `sharedMode` is 'view' (read-only) or 'edit'.
 let sharedToken = null
 let sharedMode = 'view'
+let sharedName = ''
+let shareChangeCb = null
 
 export function isShared() {
   return !!sharedToken
@@ -1277,6 +1283,21 @@ export function isShared() {
 
 export function getShareMode() {
   return sharedMode
+}
+
+// Notified when the link's mode/name changes (e.g. the owner flips view↔edit)
+// or when it's revoked, so the UI can react without a reload.
+export function onShareChange(fn) {
+  shareChangeCb = fn
+}
+
+function applyShareMeta(mode, name) {
+  const m = mode === 'edit' ? 'edit' : 'view'
+  const n = name || sharedName
+  if (m === sharedMode && n === sharedName) return
+  sharedMode = m
+  sharedName = n
+  if (shareChangeCb) shareChangeCb({ mode: m, name: n })
 }
 
 export function hasCloud() {
@@ -1319,7 +1340,18 @@ export async function pushNow() {
       ? await apiPutShare(sharedToken, cloudPayload())
       : await apiPutBoard(boardRowId, cloudPayload())
     if (res && res.error) {
-      console.warn('board sync: push failed', res.error.message)
+      if (sharedToken && (res.error.code === 'view_only' || res.error.status === 403)) {
+        // The owner turned editing off while we were mid-edit. Drop our local
+        // change, switch to view-only, and re-sync the authoritative board so
+        // it's obvious the edit wasn't applied.
+        sharedMode = 'view'
+        localVersion = 0
+        pushedVersion = 0
+        if (shareChangeCb) shareChangeCb({ mode: 'view', name: sharedName })
+        pullCloud()
+      } else {
+        console.warn('board sync: push failed', res.error.message)
+      }
     } else if (version > pushedVersion) {
       pushedVersion = version
     }
@@ -1436,12 +1468,6 @@ export async function startCloud() {
 export async function pullCloud() {
   if (!cloudEnabled) return false
   if (!sharedToken && !boardRowId) return false
-  // A viewer has no local edits to protect, so always accept remote updates.
-  const viewing = !!sharedToken && sharedMode !== 'edit'
-  // Don't overwrite local edits that haven't been pushed yet. Our own pushes
-  // also trigger realtime pings, so applying a stale remote here would clobber
-  // newer local state (e.g. a freshly seeded board).
-  if (!viewing && isDirty()) return false
   const res = sharedToken ? await apiGetShare(sharedToken) : await apiGetBoard(boardRowId)
   if (res && res.error) {
     if (sharedToken && (res.error.status === 404 || res.error.code === 'not_found')) {
@@ -1451,9 +1477,12 @@ export async function pullCloud() {
     }
     return false
   }
+  // The owner may have flipped view↔edit (or renamed the board) since we loaded.
+  if (sharedToken) applyShareMeta(res && res.mode, res && res.name)
   if (res && res.payload) {
-    // Local edits may have happened while the request was in flight — never
-    // overwrite unsynced local state with an older remote board.
+    // A viewer has no local edits to protect; an editor does — never overwrite
+    // unsynced local state with an older remote board.
+    const viewing = !!sharedToken && sharedMode !== 'edit'
     if (!viewing && isDirty()) return false
     applyRemote(res.payload)
     return true
@@ -1465,6 +1494,7 @@ export async function pullCloud() {
 function loseShare() {
   sharedToken = null
   sharedMode = 'view'
+  sharedName = ''
   cloudEnabled = false
   cloudUser = null
   stopCloud()

@@ -133,6 +133,8 @@ export default function App() {
         setBoardReady(false)
         setShareError('This shared board is no longer available.')
       })
+      // The owner can flip view↔edit while we're here — apply it live.
+      store.onShareChange((meta) => setShared({ mode: meta.mode, name: meta.name }))
       // Identify ourselves to the board room (display only).
       store.setSelfIdentity({ id: PEER_ID, kind: 'guest', name: guestName || '' })
       store.loadShared(shareToken).then((res) => {
