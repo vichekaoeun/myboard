@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS users (
   provider    TEXT NOT NULL DEFAULT 'email',
   plan        TEXT NOT NULL DEFAULT 'free',
   plan_renews_at INTEGER,
+  stripe_customer_id     TEXT,
+  stripe_subscription_id TEXT,
+  subscription_status    TEXT,
   created_at  INTEGER NOT NULL
 );
 

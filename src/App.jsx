@@ -11,7 +11,7 @@ import {
 import * as store from './store.js'
 import { pointerSelect } from './drag.js'
 import { CONNECTION_ORDER, CONNECTION_TYPES } from './connections.js'
-import { apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, apiRevokeShare, apiSetShare } from './api.js'
+import { apiBillingPortal, apiBillingRefresh, apiCheckout, apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, apiRevokeShare, apiSetShare } from './api.js'
 
 const TOOLS = [
   { id: 'move', label: 'Move', icon: MoveIcon },
@@ -66,6 +66,8 @@ export default function App() {
   const [boardsOpen, setBoardsOpen] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [shareBoard, setShareBoard] = useState(null)
+  const [billing, setBilling] = useState(false)
+  const [billingBusy, setBillingBusy] = useState(false)
   const [hoverEnvId, setHoverEnvId] = useState(null)
   const [ctx, setCtx] = useState(null)
   const [help, setHelp] = useState(false)
@@ -170,6 +172,11 @@ export default function App() {
   }, [enter])
 
   const loadProviders = apiConfig
+
+  // Is billing (Stripe) configured on the server?
+  useEffect(() => {
+    apiConfig().then((c) => { if (c && !c.error) setBilling(!!c.billing) })
+  }, [])
 
   useLayoutEffect(() => {
     if (!boardReady || !containerRef.current) return
@@ -280,6 +287,43 @@ export default function App() {
       say(`${msg.peer.name} ${verb}`)
     })
   }, [say])
+
+  const handleUpgrade = useCallback(async (interval) => {
+    setBillingBusy(true)
+    const res = await apiCheckout(interval)
+    setBillingBusy(false)
+    if (res && res.url) { window.location.assign(res.url); return }
+    say((res && res.error && res.error.message) || 'Could not start checkout')
+  }, [say])
+
+  const handleManage = useCallback(async () => {
+    const res = await apiBillingPortal()
+    if (res && res.url) { window.location.assign(res.url); return }
+    say((res && res.error && res.error.message) || 'Could not open billing')
+  }, [say])
+
+  // Returning from Stripe Checkout: sync the plan, then clean the URL.
+  useEffect(() => {
+    if (!authChecked || shareToken) return
+    const params = new URLSearchParams(window.location.search)
+    const b = params.get('billing')
+    if (!b) return
+    params.delete('billing')
+    const qs = params.toString()
+    window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : ''))
+    if (b === 'success') {
+      apiBillingRefresh()
+        .then(() => apiMe())
+        .then((res) => {
+          if (res && res.user) {
+            setSession(res.user)
+            if (res.user.plan === 'pro') say('Welcome to Pro!')
+          }
+        })
+    } else if (b === 'cancel') {
+      say('Upgrade cancelled')
+    }
+  }, [authChecked, shareToken, say])
 
   // Two-click linking: pick a note, then the note to tie it to.
   const handleLinkClick = useCallback((id) => {
@@ -1279,14 +1323,25 @@ export default function App() {
           onRename={renameBoardById}
           onDelete={deleteBoardById}
           onUpgrade={() => { setBoardsOpen(false); setUpgradeOpen(true) }}
+          onManage={session?.plan === 'pro' && billing ? () => { setBoardsOpen(false); handleManage() } : null}
           onShare={(b) => { setBoardsOpen(false); setShareBoard(b) }}
           onClose={() => setBoardsOpen(false)}
         />
       )}
 
-      {upgradeOpen && <UpgradeDialog onClose={() => setUpgradeOpen(false)} />}
+      {upgradeOpen && (
+        <UpgradeDialog billing={billing} busy={billingBusy} onUpgrade={handleUpgrade} onClose={() => setUpgradeOpen(false)} />
+      )}
 
-      {shareBoard && <ShareDialog board={shareBoard} onClose={() => setShareBoard(null)} />}
+      {shareBoard && (
+        <ShareDialog
+          board={shareBoard}
+          plan={session?.plan || 'free'}
+          billing={billing}
+          onUpgrade={() => { setShareBoard(null); setUpgradeOpen(true) }}
+          onClose={() => setShareBoard(null)}
+        />
+      )}
 
       {help && <HelpDialog onClose={() => setHelp(false)} onFit={fitView} onExport={doExport} />}
     </div>
@@ -1391,7 +1446,7 @@ function relTime(t) {
   return new Date(t).toLocaleDateString()
 }
 
-function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDelete, onUpgrade, onShare, onClose }) {
+function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDelete, onUpgrade, onManage, onShare, onClose }) {
   const [q, setQ] = useState('')
   const [editing, setEditing] = useState(null)
   const [draft, setDraft] = useState('')
@@ -1431,6 +1486,7 @@ function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDele
               ? 'Unlimited boards, history, media and collaboration.'
               : `${boards.length} of ${FREE_BOARD_LIMIT} boards used`}
           </span>
+          {isPro && onManage && <button className="boards-upgrade" onClick={onManage}>Manage</button>}
         </div>
 
         <div className="boards-grid">
@@ -1486,7 +1542,7 @@ function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDele
   )
 }
 
-function UpgradeDialog({ onClose }) {
+function UpgradeDialog({ billing, busy, onUpgrade, onClose }) {
   return (
     <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal upgrade-modal">
@@ -1494,32 +1550,44 @@ function UpgradeDialog({ onClose }) {
         <p className="upgrade-sub">One plan for you and the people you share boards with.</p>
         <ul className="upgrade-list">
           <li><b>Unlimited boards</b></li>
+          <li><b>Share boards with a link</b> — view-only or editable</li>
           <li><b>Version history &amp; backups</b> — restore any board</li>
           <li><b>Full-quality media</b> — plus video &amp; PDF embeds</li>
           <li><b>Private, passcode-locked boards</b></li>
-          <li><b>Collaboration</b> — share a board with realtime edits, comments and roles</li>
         </ul>
         <div className="upgrade-price"><b>$3/mo</b> &nbsp;or&nbsp; <b>$24/yr</b> <span>(≈$2/mo)</span></div>
         <div className="modal-btns">
           <button onClick={onClose}>Not now</button>
-          <button className="primary" disabled title="Coming soon">Upgrade — coming soon</button>
+          {billing ? (
+            <>
+              <button disabled={busy} onClick={() => onUpgrade('year')}>Annual · $24/yr</button>
+              <button className="primary" disabled={busy} onClick={() => onUpgrade('month')}>Monthly · $3/mo</button>
+            </>
+          ) : (
+            <button className="primary" disabled title="Billing isn’t set up yet">Upgrade — coming soon</button>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-function ShareDialog({ board, onClose }) {
+function ShareDialog({ board, plan, billing, onUpgrade, onClose }) {
   const [token, setToken] = useState(board.shareToken || null)
   const [mode, setMode] = useState(board.shareMode || 'view')
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
+  const isPro = plan === 'pro'
   const link = token ? `${window.location.origin}/s/${token}` : ''
 
   const applyShare = async (nextMode) => {
     setBusy(true)
     const res = await apiSetShare(board.id, nextMode)
     setBusy(false)
+    if (res && res.error) {
+      if (res.error.code === 'pro_required') onUpgrade()
+      return
+    }
     if (res && res.shareToken) {
       setToken(res.shareToken)
       setMode(res.shareMode)
@@ -1541,6 +1609,31 @@ function ShareDialog({ board, onClose }) {
     try { await navigator.clipboard.writeText(link) } catch (e) {}
     setCopied(true)
     setTimeout(() => setCopied(false), 1600)
+  }
+
+  if (!isPro) {
+    return (
+      <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+        <div className="modal share-modal">
+          <h2>Share “{board.name}”</h2>
+          <p className="share-sub">Sharing a board with a link is a <b>Pro</b> feature — create a link anyone can open, view-only or editable, and collaborate live.</p>
+          {token && (
+            <>
+              <label className="share-label">Your existing link</label>
+              <div className="share-linkrow">
+                <input className="share-link" readOnly value={link} onFocus={(e) => e.target.select()} />
+                <button className="primary" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+              </div>
+            </>
+          )}
+          <div className="modal-btns">
+            <button onClick={onClose}>Not now</button>
+            {token && <button className="danger" disabled={busy} onClick={revoke}>Stop sharing</button>}
+            <button className="primary" onClick={onUpgrade}>Upgrade to Pro</button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

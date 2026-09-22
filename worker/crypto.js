@@ -26,6 +26,23 @@ export async function hmac(secret, data) {
   return b64url(new Uint8Array(sig))
 }
 
+// HMAC-SHA256 as lowercase hex (Stripe webhook signatures use hex).
+export async function hmacHex(secret, data) {
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  )
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(data))
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+// Constant-time-ish string comparison for signatures.
+export function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false
+  let out = 0
+  for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return out === 0
+}
+
 export async function sha256hex(data) {
   const digest = await crypto.subtle.digest('SHA-256', enc.encode(data))
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')

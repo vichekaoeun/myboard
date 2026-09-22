@@ -6,6 +6,7 @@ import {
 } from './auth.js'
 import { handleBoard, boardSocket, accountSocket } from './board.js'
 import { handleShare, shareSocket } from './share.js'
+import { handleBilling, handleBillingWebhook, billingConfigured } from './billing.js'
 import { handleLinkPreview } from './preview.js'
 
 export { Room } from './room.js'
@@ -36,6 +37,11 @@ async function route(request, env, url, ctx) {
     return json({
       google: !!env.GOOGLE_CLIENT_ID,
       email: !!(env.RESEND_API_KEY || env.DEV_RETURN_LINK === 'true'),
+      billing: billingConfigured(env),
+      prices: {
+        month: env.STRIPE_PRICE_MONTHLY ? true : false,
+        year: env.STRIPE_PRICE_YEARLY ? true : false,
+      },
     })
   }
 
@@ -48,6 +54,9 @@ async function route(request, env, url, ctx) {
     res.headers.append('Set-Cookie', clearSessionCookie(env))
     return res
   }
+
+  // Stripe webhook (public — verified by signature, not session).
+  if (path === '/api/billing/webhook' && method === 'POST') return handleBillingWebhook(request, env)
 
   // Public shared-board endpoints — no account required, token only.
   if (path.startsWith('/api/share/')) {
@@ -62,7 +71,12 @@ async function route(request, env, url, ctx) {
     const user = await getSession(request, env)
     return json({
       user: user
-        ? { id: user.id, email: user.email, name: user.name, picture: user.picture, plan: user.plan || 'free' }
+        ? {
+            id: user.id, email: user.email, name: user.name, picture: user.picture,
+            plan: user.plan || 'free',
+            subscriptionStatus: user.subscription_status || null,
+            planRenewsAt: user.plan_renews_at || null,
+          }
         : null,
     })
   }
@@ -80,6 +94,7 @@ async function route(request, env, url, ctx) {
     return handleBoard(request, env, user, url)
   }
   if (path === '/api/link-preview' && method === 'GET') return handleLinkPreview(request, env, ctx)
+  if (path.startsWith('/api/billing/') && method === 'POST') return handleBilling(request, env, user, url)
   if (path === '/api/ws' && method === 'GET') return accountSocket(request, env, user)
 
   return json({ error: 'Not found' }, 404)

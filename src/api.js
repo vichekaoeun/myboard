@@ -94,6 +94,19 @@ export function apiLinkPreview(url) {
   return req('GET', `/api/link-preview?url=${encodeURIComponent(url)}`)
 }
 
+// Billing (Stripe Checkout + Billing Portal).
+export function apiCheckout(interval) {
+  return req('POST', '/api/billing/checkout', { interval })
+}
+
+export function apiBillingPortal() {
+  return req('POST', '/api/billing/portal')
+}
+
+export function apiBillingRefresh() {
+  return req('POST', '/api/billing/refresh')
+}
+
 // Live updates: the Worker pings "changed" whenever the board is saved, and
 // streams presence/activity. Auto-reconnects while mounted.
 function openSocket(path, onMessage) {

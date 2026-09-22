@@ -37,4 +37,11 @@ new_sqlite_classes = ["Room"]
 APP_NAME = "SimpleBoard"
 # Public origin used to build magic-link and OAuth callback URLs.
 # Override per environment; must match what you deploy to.
-PUBLIC_BASE_URL = "https://myboard.oeunvicheka95.workers.dev"
+PUBLIC_BASE_URL = "https://myboard.oeunvichekaoe95.workers.dev"
+# Stripe price IDs for the Pro plan (create them in the Stripe dashboard).
+# Leave empty until billing is set up; the app hides Upgrade until then.
+# Secrets to set separately:
+#   npx wrangler secret put STRIPE_SECRET_KEY
+#   npx wrangler secret put STRIPE_WEBHOOK_SECRET
+STRIPE_PRICE_MONTHLY = ""
+STRIPE_PRICE_YEARLY = ""
