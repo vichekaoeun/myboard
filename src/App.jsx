@@ -121,7 +121,10 @@ export default function App() {
       kind: 'user',
       name: user.name || (user.email ? user.email.split('@')[0] : 'You'),
     })
-    await store.loadBoard(user.id)
+    // Deep link: /b/<slug> opens that board after sign-in.
+    const m = window.location.pathname.match(/^\/b\/([^/]+)\/?$/)
+    const slug = m ? decodeURIComponent(m[1]) : null
+    await store.loadBoard(user.id, slug)
     setSession(user); setBoardReady(true); setAuthChecked(true)
   }, [])
 
@@ -252,6 +255,14 @@ export default function App() {
   useEffect(() => {
     if (state.mode !== 'link') { linkFromRef.current = null; setLinkFrom(null) }
   }, [state.mode])
+
+  // Keep the address bar in sync with the open board, so /b/<slug> is a real
+  // deep link you can bookmark or share.
+  useEffect(() => {
+    if (shared || !boardReady || !state.boardSlug) return
+    const want = '/b/' + state.boardSlug
+    if (window.location.pathname !== want) window.history.replaceState({}, '', want)
+  }, [state.boardSlug, shared, boardReady])
 
   // A shared board switching to view-only mid-edit: close the open editor,
   // format bar and menus so nothing stays editable.

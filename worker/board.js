@@ -33,6 +33,24 @@ function emptyPayload() {
   })
 }
 
+// Human-friendly slug for deep links: "My Board" -> "my-board-3f9a2c". The short
+// id suffix keeps it unique and stable across renames.
+function slugify(name) {
+  const base = String(name || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/g, '')
+  return base || 'board'
+}
+
+function boardSlug(name, id) {
+  return `${slugify(name)}-${id.slice(0, 6)}`
+}
+
 export async function handleBoard(request, env, user, url) {
   const method = request.method
   const parts = url.pathname.split('/').filter(Boolean) // ['api','boards', id?, 'share'?]
@@ -48,7 +66,7 @@ export async function handleBoard(request, env, user, url) {
   if (parts[3] === 'share') return manageShare(request, env, user, id, method)
 
   const row = await env.DB
-    .prepare('SELECT id, user_id, name, payload, updated_at, share_token, share_mode FROM boards WHERE id = ? AND user_id = ?')
+    .prepare('SELECT id, user_id, name, payload, updated_at, share_token, share_mode, slug FROM boards WHERE id = ? AND user_id = ?')
     .bind(id, user.id).first()
   if (!row) return json({ error: 'Not found' }, 404)
 
@@ -56,6 +74,7 @@ export async function handleBoard(request, env, user, url) {
     return json({
       id: row.id, name: row.name, payload: row.payload, updatedAt: row.updated_at,
       shareToken: row.share_token || null, shareMode: row.share_mode || 'view',
+      slug: row.slug || row.id,
     })
   }
   if (method === 'PUT') return saveBoard(request, env, user, row)
@@ -66,12 +85,23 @@ export async function handleBoard(request, env, user, url) {
 
 async function listBoards(env, user) {
   const { results } = await env.DB
-    .prepare('SELECT id, name, updated_at, share_token, share_mode FROM boards WHERE user_id = ? ORDER BY updated_at ASC')
+    .prepare('SELECT id, name, updated_at, share_token, share_mode, slug FROM boards WHERE user_id = ? ORDER BY updated_at ASC')
     .bind(user.id).all()
+  const rows = results || []
+  // Lazily backfill slugs for boards created before slugs existed.
+  for (const r of rows) {
+    if (!r.slug) {
+      r.slug = boardSlug(r.name, r.id)
+      try {
+        await env.DB.prepare('UPDATE boards SET slug = ? WHERE id = ? AND user_id = ?').bind(r.slug, r.id, user.id).run()
+      } catch (e) { /* best effort */ }
+    }
+  }
   return json({
-    boards: (results || []).map((r) => ({
-      id: r.id, name: r.name, updatedAt: r.updated_at,
+    boards: rows.map((r) => ({
+      id: r.id, name: r.name, updatedAt: r.updated_at > 0 ? r.updated_at : 0,
       shareToken: r.share_token || null, shareMode: r.share_mode || 'view',
+      slug: r.slug,
     })),
   })
 }
@@ -132,10 +162,11 @@ async function createBoard(request, env, user) {
   }
   const id = crypto.randomUUID()
   const now = Date.now()
+  const slug = boardSlug(name, id)
   await env.DB
-    .prepare('INSERT INTO boards (id, user_id, name, payload, updated_at) VALUES (?, ?, ?, ?, ?)')
-    .bind(id, user.id, name, emptyPayload(), now).run()
-  return json({ id, name, updatedAt: now })
+    .prepare('INSERT INTO boards (id, user_id, name, payload, updated_at, slug) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(id, user.id, name, emptyPayload(), now, slug).run()
+  return json({ id, name, updatedAt: now, slug })
 }
 
 async function saveBoard(request, env, user, row) {

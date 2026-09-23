@@ -238,6 +238,7 @@ function defaultState() {
     boards: [],
     boardId: null,
     boardName: '',
+    boardSlug: '',
     peers: [],
     cursors: {},
   }
@@ -293,6 +294,7 @@ function hydrate(saved) {
         selectedIds: [],
         peers: [],
         cursors: {},
+        boardSlug: '',
         view: { ...base.view, ...(saved.view || {}) },
       }
     : base
@@ -394,8 +396,8 @@ async function loadBoardContent(id) {
 }
 
 // Sign in: fetch the account's boards (creating a first one if needed) and open
-// the most recently used one.
-export async function loadBoard(userId) {
+// the most recently used one — or `desiredSlug` when a /b/<slug> link is opened.
+export async function loadBoard(userId, desiredSlug) {
   currentUserId = userId || null
   sharedToken = null
   sharedMode = 'view'
@@ -407,19 +409,27 @@ export async function loadBoard(userId) {
     if (res && !res.error && Array.isArray(res.boards)) list = res.boards
     if (!list.length) {
       const created = await apiCreateBoard('My Board')
-      if (created && !created.error) list = [{ id: created.id, name: created.name, updatedAt: created.updatedAt }]
+      if (created && !created.error) list = [{ id: created.id, name: created.name, updatedAt: created.updatedAt, slug: created.slug }]
     }
   }
   boards = list
   let chosen = null
   if (currentUserId && list.length) {
-    const last = localStorage.getItem(lastBoardKey(currentUserId))
-    chosen = list.find((b) => b.id === last) || list[0]
+    if (desiredSlug) chosen = list.find((b) => b.slug === desiredSlug || b.id === desiredSlug) || null
+    if (!chosen) {
+      const last = localStorage.getItem(lastBoardKey(currentUserId))
+      chosen = list.find((b) => b.id === last) || list[0]
+    }
   }
   let loaded = { fresh: true }
   if (chosen) loaded = await loadBoardContent(chosen.id)
   else { boardRowId = null; loaded = await applyKey(DB_KEY) }
-  state = { ...state, boards: list, boardId: chosen ? chosen.id : null, boardName: chosen ? chosen.name : '' }
+  state = {
+    ...state, boards: list,
+    boardId: chosen ? chosen.id : null,
+    boardName: chosen ? chosen.name : '',
+    boardSlug: chosen ? (chosen.slug || chosen.id) : '',
+  }
   snapshot = state
   emit()
   return { fresh: loaded.fresh }
@@ -434,7 +444,11 @@ export async function openBoard(id) {
   saveNow()
   const loaded = await loadBoardContent(id)
   const meta = boards.find((b) => b.id === id)
-  state = { ...state, boards, boardId: id, boardName: meta ? meta.name : '' }
+  state = {
+    ...state, boards, boardId: id,
+    boardName: meta ? meta.name : '',
+    boardSlug: meta ? (meta.slug || id) : id,
+  }
   snapshot = state
   emit()
   return loaded
@@ -445,7 +459,7 @@ export async function openBoard(id) {
 export async function createBoard(name) {
   const res = await apiCreateBoard(name || 'New board')
   if (!res || res.error) return res
-  boards = [...boards, { id: res.id, name: res.name, updatedAt: res.updatedAt }]
+  boards = [...boards, { id: res.id, name: res.name, updatedAt: res.updatedAt, slug: res.slug }]
   await openBoard(res.id)
   return res
 }
@@ -505,7 +519,7 @@ export async function loadShared(token) {
     state = merged
     snapshot = merged
   }
-  state = { ...state, boardId: res.id, boardName: res.name || 'Shared board', boards: [] }
+  state = { ...state, boardId: res.id, boardName: res.name || 'Shared board', boardSlug: '', boards: [] }
   snapshot = state
   history.length = 0
   redo.length = 0

@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS login_tokens (
 CREATE INDEX IF NOT EXISTS idx_login_tokens_email ON login_tokens (email);
 
 -- Boards: many per account. `user_id` is the owner. A board can be shared via
--- a secret link token; `share_mode` is 'view' (default) or 'edit'.
+-- a secret link token; `share_mode` is 'view' (default) or 'edit'. `slug` is a
+-- stable, human-friendly id used for deep links (/b/<slug>).
 CREATE TABLE IF NOT EXISTS boards (
   id          TEXT PRIMARY KEY,
   user_id     TEXT NOT NULL,
@@ -35,8 +36,10 @@ CREATE TABLE IF NOT EXISTS boards (
   payload     TEXT NOT NULL,
   updated_at  INTEGER NOT NULL,
   share_token TEXT,
-  share_mode  TEXT NOT NULL DEFAULT 'view'
+  share_mode  TEXT NOT NULL DEFAULT 'view',
+  slug        TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_boards_user ON boards (user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_boards_share ON boards (share_token) WHERE share_token IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_boards_slug ON boards (slug) WHERE slug IS NOT NULL;
