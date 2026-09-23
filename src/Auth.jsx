@@ -21,7 +21,7 @@ export function AuthGate({ onGoogle, onEmail, loadProviders }) {
   const friendly = (message) => {
     if (!message) return message
     if (/provider is not enabled/i.test(message)) {
-      return 'Google sign-in isn’t enabled for this project yet — use the email link below.'
+      return 'Google sign-in isn’t enabled for this project yet.'
     }
     if (/redirect|url/i.test(message)) {
       return 'This site isn’t in the allowed redirect URLs yet — add it in the provider settings.'
@@ -52,8 +52,10 @@ export function AuthGate({ onGoogle, onEmail, loadProviders }) {
     else setSent(true)
   }
 
-  const showGoogle = providers ? providers.google !== false : true
-  const showEmail = providers ? providers.email !== false : true
+  // Only show a provider once config confirms it. Email defaults OFF so a slow
+  // config load never flashes an email form that isn't actually available.
+  const showGoogle = providers ? providers.google === true : true
+  const showEmail = providers ? providers.email === true : false
 
   return (
     <div className="auth-screen">
