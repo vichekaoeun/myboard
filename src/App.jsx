@@ -106,6 +106,10 @@ export default function App() {
   const enter = useCallback(async (user) => {
     if (!user) {
       loadedUserRef.current = null
+      // Don't leave a board deep link (/b/<slug>) visible while signed out.
+      if (typeof window !== 'undefined' && /^\/b\//.test(window.location.pathname)) {
+        window.history.replaceState({}, '', '/')
+      }
       setSession(null); setBoardReady(false); setAuthChecked(true)
       store.resetBoard()
       return
@@ -121,7 +125,7 @@ export default function App() {
       kind: 'user',
       name: user.name || (user.email ? user.email.split('@')[0] : 'You'),
     })
-    // Deep link: /b/<slug> opens that board after sign-in.
+    // Open the board named in the URL (deep link), if any.
     const m = window.location.pathname.match(/^\/b\/([^/]+)\/?$/)
     const slug = m ? decodeURIComponent(m[1]) : null
     await store.loadBoard(user.id, slug)
