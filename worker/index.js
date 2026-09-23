@@ -14,6 +14,10 @@ export { Room } from './room.js'
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
+    // Canonicalise www → apex so there's a single origin (and one session).
+    if (url.hostname === 'www.simpleboard.cc') {
+      return Response.redirect(`https://simpleboard.cc${url.pathname}${url.search}`, 301)
+    }
     if (url.pathname.startsWith('/api/')) {
       try {
         return await route(request, env, url, ctx)

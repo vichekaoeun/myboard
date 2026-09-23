@@ -47,6 +47,11 @@ STRIPE_PRICE_MONTHLY = ""
 STRIPE_PRICE_YEARLY = ""
 
 # Custom domain (Cloudflare-managed; the zone must be in this account).
+# www is also attached so it resolves and the Worker redirects it to the apex.
 [[routes]]
 pattern = "simpleboard.cc"
+custom_domain = true
+
+[[routes]]
+pattern = "www.simpleboard.cc"
 custom_domain = true
