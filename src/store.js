@@ -184,6 +184,15 @@ function handleSocketData(data) {
     setPeers(msg.peers)
     return
   }
+  if (msg.t === 'full') {
+    // Free boards allow one guest at a time; the room turned us away.
+    if (apiSocket) { try { apiSocket.close() } catch (e) {} apiSocket = null }
+    stopSharePoll()
+    cloudSubReady = false
+    cloudEnabled = false
+    if (shareFullCb) shareFullCb()
+    return
+  }
   if (msg.t === 'cursor') {
     applyCursor(msg)
     return
@@ -1523,4 +1532,9 @@ function loseShare() {
 let shareLostCb = null
 export function onShareLost(fn) {
   shareLostCb = fn
+}
+
+let shareFullCb = null
+export function onShareFull(fn) {
+  shareFullCb = fn
 }

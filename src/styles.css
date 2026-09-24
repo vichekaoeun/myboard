@@ -1959,6 +1959,8 @@ body.mb-selecting * { user-select: none !important; }
 
 .share-modal { width: min(520px, 94vw); }
 .share-sub { margin: 6px 0 16px; color: rgba(255, 235, 205, 0.72); font-size: 13.5px; }
+.share-hint { margin: 0 0 14px; color: rgba(255, 235, 205, 0.62); font-size: 12.5px; }
+.share-hint-link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; }
 .share-label {
   display: block;
   margin-bottom: 6px;

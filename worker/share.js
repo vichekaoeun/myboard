@@ -55,5 +55,15 @@ export async function shareSocket(request, env, token) {
   const row = await loadShared(env, token)
   if (!row) return new Response('Not found', { status: 404 })
   const stub = env.ROOM.get(env.ROOM.idFromName(boardRoomName(row.id)))
+  // Concurrent-guest cap by the owner's plan: free = 1, Pro = unlimited.
+  try {
+    const owner = await env.DB.prepare('SELECT plan FROM users WHERE id = ?').bind(row.user_id).first()
+    const maxGuests = owner && owner.plan === 'pro' ? 0 : 1
+    await stub.fetch('https://room/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ maxGuests }),
+    })
+  } catch (e) { /* best effort; defaults to the previous cap */ }
   return stub.fetch(request)
 }

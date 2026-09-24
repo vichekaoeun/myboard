@@ -21,7 +21,7 @@ export async function notifyRoom(env, name) {
 
 // Entitlements. Free accounts get a small number of boards; Pro is unlimited
 // in practice. Enforced server-side so it can't be bypassed from the client.
-const PLAN_BOARD_LIMIT = { free: 3, pro: 500 }
+const PLAN_BOARD_LIMIT = { free: 2, pro: 500 }
 function boardLimit(plan) {
   return PLAN_BOARD_LIMIT[plan] || PLAN_BOARD_LIMIT.free
 }
@@ -121,15 +121,6 @@ async function manageShare(request, env, user, id, method) {
     return json({ ok: true, shareToken: null, shareMode: row.share_mode || 'view' })
   }
   if (method === 'POST' || method === 'PATCH') {
-    // Creating or changing a share link is a Pro feature. Existing links keep
-    // working, and revoking is always allowed.
-    if ((user.plan || 'free') !== 'pro') {
-      return json({
-        error: 'pro_required',
-        message: 'Sharing boards is a Pro feature. Upgrade to create share links.',
-        plan: user.plan || 'free',
-      }, 402)
-    }
     let body = {}
     try { body = await request.json() } catch (e) {}
     const mode = body.mode === 'edit' ? 'edit' : 'view'

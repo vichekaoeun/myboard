@@ -21,7 +21,7 @@ const TOOLS = [
   { id: 'link', label: 'Link', icon: LinkIcon },
 ]
 
-const FREE_BOARD_LIMIT = 3
+const FREE_BOARD_LIMIT = 2
 
 // Stable id for this browser tab, used to identify our own presence entry.
 function tabPeerId() {
@@ -141,6 +141,12 @@ export default function App() {
         setShared(null)
         setBoardReady(false)
         setShareError('This shared board is no longer available.')
+      })
+      // Free boards allow one guest at a time; the room turns away extras.
+      store.onShareFull(() => {
+        setShared(null)
+        setBoardReady(false)
+        setShareError('Someone else is already on this board. The free plan allows one guest at a time — ask the owner to upgrade for unlimited guests.')
       })
       // The owner can flip view↔edit while we're here — apply it live.
       store.onShareChange((meta) => setShared({ mode: meta.mode, name: meta.name }))
@@ -1352,7 +1358,6 @@ export default function App() {
         <ShareDialog
           board={shareBoard}
           plan={session?.plan || 'free'}
-          billing={billing}
           onUpgrade={() => { setShareBoard(null); setUpgradeOpen(true) }}
           onClose={() => setShareBoard(null)}
         />
@@ -1566,6 +1571,7 @@ function UpgradeDialog({ billing, busy, onUpgrade, onClose }) {
         <ul className="upgrade-list">
           <li><b>Unlimited boards</b></li>
           <li><b>Share boards with a link</b> — view-only or editable</li>
+          <li><b>Unlimited guests</b> — the free plan allows one at a time</li>
           <li><b>Version history &amp; backups</b> — restore any board</li>
           <li><b>Full-quality media</b> — plus video &amp; PDF embeds</li>
           <li><b>Private, passcode-locked boards</b></li>
@@ -1587,7 +1593,7 @@ function UpgradeDialog({ billing, busy, onUpgrade, onClose }) {
   )
 }
 
-function ShareDialog({ board, plan, billing, onUpgrade, onClose }) {
+function ShareDialog({ board, plan, onUpgrade, onClose }) {
   const [token, setToken] = useState(board.shareToken || null)
   const [mode, setMode] = useState(board.shareMode || 'view')
   const [busy, setBusy] = useState(false)
@@ -1626,30 +1632,12 @@ function ShareDialog({ board, plan, billing, onUpgrade, onClose }) {
     setTimeout(() => setCopied(false), 1600)
   }
 
-  if (!isPro) {
-    return (
-      <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-        <div className="modal share-modal">
-          <h2>Share “{board.name}”</h2>
-          <p className="share-sub">Sharing a board with a link is a <b>Pro</b> feature — create a link anyone can open, view-only or editable, and collaborate live.</p>
-          {token && (
-            <>
-              <label className="share-label">Your existing link</label>
-              <div className="share-linkrow">
-                <input className="share-link" readOnly value={link} onFocus={(e) => e.target.select()} />
-                <button className="primary" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
-              </div>
-            </>
-          )}
-          <div className="modal-btns">
-            <button onClick={onClose}>Not now</button>
-            {token && <button className="danger" disabled={busy} onClick={revoke}>Stop sharing</button>}
-            <button className="primary" onClick={onUpgrade}>Upgrade to Pro</button>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  const guestHint = !isPro ? (
+    <p className="share-hint">
+      Free plan: <b>one guest at a time</b>.{' '}
+      <button type="button" className="share-hint-link" onClick={onUpgrade}>Upgrade</button> for unlimited guests.
+    </p>
+  ) : null
 
   return (
     <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
@@ -1658,6 +1646,7 @@ function ShareDialog({ board, plan, billing, onUpgrade, onClose }) {
         {!token ? (
           <>
             <p className="share-sub">Create a link anyone can open — no account needed.</p>
+            {guestHint}
             <div className="modal-btns">
               <button onClick={onClose}>Cancel</button>
               <button className="primary" disabled={busy} onClick={() => applyShare('view')}>Create link</button>
@@ -1679,6 +1668,8 @@ function ShareDialog({ board, plan, billing, onUpgrade, onClose }) {
                 <b>Can edit</b><span>Anyone with the link can change the board</span>
               </button>
             </div>
+
+            {guestHint}
 
             <div className="modal-btns">
               <button className="danger" disabled={busy} onClick={revoke}>Stop sharing</button>

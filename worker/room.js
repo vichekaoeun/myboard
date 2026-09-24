@@ -10,6 +10,7 @@ export class Room {
     this.state = state
     this.env = env
     this.sessions = new Map() // WebSocket -> peer
+    this.maxGuests = 0 // 0 = unlimited; set per owner plan before a guest joins
   }
 
   async fetch(request) {
@@ -17,6 +18,15 @@ export class Room {
 
     if (url.pathname.endsWith('/notify')) {
       this.broadcast('changed')
+      return new Response('ok')
+    }
+
+    // The API sets the concurrent-guest cap for this board before a guest's
+    // socket connects (free owner = 1, Pro = unlimited).
+    if (url.pathname.endsWith('/config')) {
+      let body = {}
+      try { body = await request.json() } catch (e) {}
+      this.maxGuests = Number(body.maxGuests) || 0
       return new Response('ok')
     }
 
@@ -35,11 +45,26 @@ export class Room {
       peer.color = colorFor(peer.id)
 
       const pair = new WebSocketPair()
+      // Free boards allow one guest at a time; tell extras and close.
+      if (peer.kind === 'guest' && this.guestsFull()) {
+        pair[1].accept()
+        try { pair[1].send(JSON.stringify({ t: 'full' })) } catch (e) {}
+        try { pair[1].close(4000, 'full') } catch (e) {}
+        return new Response(null, { status: 101, webSocket: pair[0] })
+      }
       this.accept(pair[1], peer)
       return new Response(null, { status: 101, webSocket: pair[0] })
     }
 
     return new Response('Not found', { status: 404 })
+  }
+
+  guestsFull() {
+    const max = this.maxGuests
+    if (!max) return false
+    let guests = 0
+    for (const p of this.sessions.values()) if (p.kind === 'guest') guests++
+    return guests >= max
   }
 
   accept(server, peer) {
