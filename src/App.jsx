@@ -11,7 +11,7 @@ import {
 import * as store from './store.js'
 import { pointerSelect } from './drag.js'
 import { CONNECTION_ORDER, CONNECTION_TYPES } from './connections.js'
-import { apiBillingPortal, apiBillingRefresh, apiCheckout, apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, apiRevokeShare, apiSetShare } from './api.js'
+import { apiBillingCancel, apiBillingPortal, apiBillingRefresh, apiBillingSwitch, apiCheckout, apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, apiRevokeShare, apiSetShare } from './api.js'
 
 const TOOLS = [
   { id: 'move', label: 'Move', icon: MoveIcon },
@@ -321,6 +321,26 @@ export default function App() {
     const res = await apiBillingPortal()
     if (res && res.url) { window.location.assign(res.url); return }
     say((res && res.error && res.error.message) || 'Could not open billing')
+  }, [say])
+
+  const handleSwitch = useCallback(async (interval) => {
+    setBillingBusy(true)
+    const res = await apiBillingSwitch(interval)
+    setBillingBusy(false)
+    if (res && !res.error) setSession((s) => (s ? { ...s, ...res } : s))
+    else say((res && res.error && res.error.message) || 'Could not change plan')
+  }, [say])
+
+  const handleCancel = useCallback(async (resume) => {
+    setBillingBusy(true)
+    const res = await apiBillingCancel(resume)
+    setBillingBusy(false)
+    if (res && !res.error) {
+      setSession((s) => (s ? { ...s, ...res } : s))
+      say(resume ? 'Plan resumed' : 'Plan will cancel at the end of the period')
+    } else {
+      say((res && res.error && res.error.message) || 'Could not update plan')
+    }
   }, [say])
 
   // Returning from Stripe Checkout: sync the plan, then clean the URL.
@@ -1105,6 +1125,7 @@ export default function App() {
                 <button className="tb-menu-item" onClick={() => { setMoreOpen(false); fitView() }}>Fit everything<span className="tb-kbd">F</span></button>
                 <button className="tb-menu-item" onClick={() => { setMoreOpen(false); setHelp(true) }}>Shortcuts &amp; help<span className="tb-kbd">?</span></button>
                 <div className="tb-menu-div" />
+                <button className="tb-menu-item" onClick={() => { setMoreOpen(false); setUpgradeOpen(true) }}>Plan &amp; billing</button>
                 <button className="tb-menu-item" onClick={() => { setMoreOpen(false); store.saveNow(); doExport() }}>Export board</button>
                 <button className="tb-menu-item" onClick={() => { setMoreOpen(false); importInputRef.current?.click() }}>Import board</button>
               </div>
@@ -1343,15 +1364,23 @@ export default function App() {
           onNew={newBoard}
           onRename={renameBoardById}
           onDelete={deleteBoardById}
-          onUpgrade={() => { setBoardsOpen(false); setUpgradeOpen(true) }}
-          onManage={session?.plan === 'pro' && billing ? () => { setBoardsOpen(false); handleManage() } : null}
+          onPlan={() => { setBoardsOpen(false); setUpgradeOpen(true) }}
           onShare={(b) => { setBoardsOpen(false); setShareBoard(b) }}
           onClose={() => setBoardsOpen(false)}
         />
       )}
 
       {upgradeOpen && (
-        <UpgradeDialog billing={billing} busy={billingBusy} onUpgrade={handleUpgrade} onClose={() => setUpgradeOpen(false)} />
+        <PlanDialog
+          session={session}
+          billing={billing}
+          busy={billingBusy}
+          onBuy={handleUpgrade}
+          onSwitch={handleSwitch}
+          onCancel={handleCancel}
+          onManage={handleManage}
+          onClose={() => setUpgradeOpen(false)}
+        />
       )}
 
       {shareBoard && (
@@ -1466,7 +1495,7 @@ function relTime(t) {
   return new Date(t).toLocaleDateString()
 }
 
-function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDelete, onUpgrade, onManage, onShare, onClose }) {
+function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDelete, onPlan, onShare, onClose }) {
   const [q, setQ] = useState('')
   const [editing, setEditing] = useState(null)
   const [draft, setDraft] = useState('')
@@ -1493,20 +1522,20 @@ function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDele
               placeholder="Search boards…"
               spellCheck={false}
             />
-            {!isPro && <button className="boards-upgrade" onClick={onUpgrade}>Upgrade</button>}
+            {!isPro && <button className="boards-upgrade" onClick={onPlan}>Upgrade</button>}
             <button className="boards-new-btn" onClick={onNew}>＋ New board</button>
             <button className="icon-btn" onClick={onClose} title="Close">×</button>
           </div>
         </div>
 
         <div className="boards-planline">
-          <span className={`plan-chip ${isPro ? 'pro' : ''}`}>{isPro ? 'Pro' : 'Free plan'}</span>
+          <button className={`plan-chip ${isPro ? 'pro' : ''}`} onClick={onPlan} title="Plan & billing">{isPro ? 'Pro' : 'Free plan'}</button>
           <span className="boards-plannote">
             {isPro
               ? 'Unlimited boards, history, media and collaboration.'
               : `${boards.length} of ${FREE_BOARD_LIMIT} boards used`}
           </span>
-          {isPro && onManage && <button className="boards-upgrade" onClick={onManage}>Manage</button>}
+          <button className="boards-upgrade" onClick={onPlan}>{isPro ? 'Manage plan' : 'Upgrade'}</button>
         </div>
 
         <div className="boards-grid">
@@ -1562,31 +1591,75 @@ function BoardsDialog({ boards, currentId, plan, onOpen, onNew, onRename, onDele
   )
 }
 
-function UpgradeDialog({ billing, busy, onUpgrade, onClose }) {
+function PlanDialog({ session, billing, busy, onBuy, onSwitch, onCancel, onManage, onClose }) {
+  const isPro = (session?.plan || 'free') === 'pro'
+  const interval = session?.planInterval
+  const renews = session?.planRenewsAt
+  const canceling = !!session?.cancelAtPeriodEnd
+  const status = session?.subscriptionStatus
+  const dateStr = renews ? new Date(renews).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : ''
+
   return (
     <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal upgrade-modal">
-        <h2>SimpleBoard Pro</h2>
-        <p className="upgrade-sub">One plan for you and the people you share boards with.</p>
-        <ul className="upgrade-list">
-          <li><b>Unlimited boards</b></li>
-          <li><b>Share boards with a link</b> — view-only or editable</li>
-          <li><b>Unlimited guests</b> — the free plan allows one at a time</li>
-          <li><b>Version history &amp; backups</b> — restore any board</li>
-          <li><b>Full-quality media</b> — plus video &amp; PDF embeds</li>
-          <li><b>Private, passcode-locked boards</b></li>
-        </ul>
-        <div className="upgrade-price"><b>$3/mo</b> &nbsp;or&nbsp; <b>$24/yr</b> <span>(≈$2/mo)</span></div>
+        <h2>Plan &amp; billing</h2>
+
+        <div className="plan-status">
+          <span className={`plan-chip ${isPro ? 'pro' : ''}`}>{isPro ? 'Pro' : 'Free plan'}</span>
+          <span className="plan-status-note">
+            {isPro
+              ? (canceling ? `Cancels on ${dateStr}` : (renews ? `Renews ${dateStr}` : 'Active'))
+              : '2 boards · 1 guest at a time'}
+          </span>
+          {isPro && status && status !== 'active' && <span className="plan-status-note">· {status}</span>}
+        </div>
+
+        {isPro ? (
+          <div className="plan-actions">
+            {interval === 'month' && (
+              <button disabled={busy} onClick={() => onSwitch('year')}>Switch to annual · $24/yr</button>
+            )}
+            {interval === 'year' && (
+              <button disabled={busy} onClick={() => onSwitch('month')}>Switch to monthly · $3/mo</button>
+            )}
+            {canceling ? (
+              <button className="primary" disabled={busy} onClick={() => onCancel(false)}>Resume plan</button>
+            ) : (
+              <button
+                className="danger"
+                disabled={busy}
+                onClick={() => { if (window.confirm('Cancel Pro at the end of the current billing period?')) onCancel(true) }}
+              >
+                Cancel plan
+              </button>
+            )}
+            <button onClick={onManage}>Manage billing &amp; invoices</button>
+          </div>
+        ) : (
+          <>
+            <ul className="upgrade-list">
+              <li><b>Unlimited boards</b></li>
+              <li><b>Unlimited guests</b> — the free plan allows one at a time</li>
+              <li><b>Version history &amp; backups</b> — restore any board</li>
+              <li><b>Full-quality media</b> — plus video &amp; PDF embeds</li>
+              <li><b>Private, passcode-locked boards</b></li>
+            </ul>
+            <div className="upgrade-price"><b>$3/mo</b> &nbsp;or&nbsp; <b>$24/yr</b> <span>(≈$2/mo)</span></div>
+            <div className="plan-actions">
+              {billing ? (
+                <>
+                  <button disabled={busy} onClick={() => onBuy('year')}>Annual · $24/yr</button>
+                  <button className="primary" disabled={busy} onClick={() => onBuy('month')}>Monthly · $3/mo</button>
+                </>
+              ) : (
+                <button className="primary" disabled title="Billing isn’t set up yet">Upgrade — coming soon</button>
+              )}
+            </div>
+          </>
+        )}
+
         <div className="modal-btns">
-          <button onClick={onClose}>Not now</button>
-          {billing ? (
-            <>
-              <button disabled={busy} onClick={() => onUpgrade('year')}>Annual · $24/yr</button>
-              <button className="primary" disabled={busy} onClick={() => onUpgrade('month')}>Monthly · $3/mo</button>
-            </>
-          ) : (
-            <button className="primary" disabled title="Billing isn’t set up yet">Upgrade — coming soon</button>
-          )}
+          <button onClick={onClose}>Close</button>
         </div>
       </div>
     </div>

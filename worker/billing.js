@@ -35,6 +35,75 @@ function baseUrl(request, env) {
   return (env.PUBLIC_BASE_URL || new URL(request.url).origin).replace(/\/$/, '')
 }
 
+function errMessage(res, fallback) {
+  return (res && res.data && res.data.error && res.data.error.message) || fallback
+}
+
+// The account's most recent subscription (there's only ever one per customer).
+async function activeSubscription(env, customerId) {
+  const subs = await stripe(env, 'GET', `subscriptions?customer=${encodeURIComponent(customerId)}&status=all&limit=1`)
+  return subs.ok ? ((subs.data.data || [])[0] || null) : null
+}
+
+// Map a Stripe subscription onto our plan fields.
+function planFromSub(env, sub) {
+  const active = ACTIVE_STATUSES.includes(sub.status)
+  const priceId = sub.items && sub.items.data && sub.items.data[0] && sub.items.data[0].price && sub.items.data[0].price.id
+  let interval = null
+  if (priceId && env.STRIPE_PRICE_YEARLY && priceId === env.STRIPE_PRICE_YEARLY) interval = 'year'
+  else if (priceId && env.STRIPE_PRICE_MONTHLY && priceId === env.STRIPE_PRICE_MONTHLY) interval = 'month'
+  return {
+    plan: active ? 'pro' : 'free',
+    interval,
+    status: sub.status || null,
+    renewsAt: sub.current_period_end ? sub.current_period_end * 1000 : null,
+    cancelAtPeriodEnd: !!sub.cancel_at_period_end,
+  }
+}
+
+async function saveSubscription(env, userId, s) {
+  await env.DB.prepare(
+    'UPDATE users SET plan = ?, stripe_customer_id = ?, stripe_subscription_id = ?, subscription_status = ?, plan_renews_at = ?, plan_interval = ?, cancel_at_period_end = ? WHERE id = ?'
+  ).bind(
+    s.plan, s.customerId || null, s.subscriptionId || null, s.status || null,
+    s.renewsAt || null, s.interval || null, s.cancelAtPeriodEnd ? 1 : 0, userId
+  ).run()
+}
+
+async function applySubscriptionObject(env, userId, customerId, sub) {
+  const info = planFromSub(env, sub)
+  await saveSubscription(env, userId, {
+    plan: info.plan, customerId, subscriptionId: sub.id, status: info.status,
+    renewsAt: info.renewsAt, interval: info.interval, cancelAtPeriodEnd: info.cancelAtPeriodEnd,
+  })
+}
+
+function billingFromUser(user) {
+  return {
+    plan: user.plan || 'free',
+    subscriptionStatus: user.subscription_status || null,
+    planRenewsAt: user.plan_renews_at || null,
+    planInterval: user.plan_interval || null,
+    cancelAtPeriodEnd: !!user.cancel_at_period_end,
+  }
+}
+
+// Pull the latest subscription from Stripe and update the user's plan.
+export async function refreshUserSubscription(env, user) {
+  if (!user.stripe_customer_id) return billingFromUser(user)
+  const sub = await activeSubscription(env, user.stripe_customer_id)
+  if (!sub) {
+    await saveSubscription(env, user.id, { plan: 'free', customerId: user.stripe_customer_id })
+    return { plan: 'free', subscriptionStatus: null, planRenewsAt: null, planInterval: null, cancelAtPeriodEnd: false }
+  }
+  await applySubscriptionObject(env, user.id, user.stripe_customer_id, sub)
+  const info = planFromSub(env, sub)
+  return {
+    plan: info.plan, subscriptionStatus: info.status, planRenewsAt: info.renewsAt,
+    planInterval: info.interval, cancelAtPeriodEnd: info.cancelAtPeriodEnd,
+  }
+}
+
 export async function handleBilling(request, env, user, url) {
   const path = url.pathname
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -56,7 +125,7 @@ export async function handleBilling(request, env, user, url) {
         name: user.name || '',
         'metadata[userId]': user.id,
       })
-      if (!c.ok) return json({ error: 'stripe_error', message: (c.data.error && c.data.error.message) || 'Stripe error' }, 502)
+      if (!c.ok) return json({ error: 'stripe_error', message: errMessage(c, 'Stripe error') }, 502)
       customerId = c.data.id
       await env.DB.prepare('UPDATE users SET stripe_customer_id = ? WHERE id = ?').bind(customerId, user.id).run()
     }
@@ -73,7 +142,7 @@ export async function handleBilling(request, env, user, url) {
       cancel_url: `${base}/?billing=cancel`,
       allow_promotion_codes: 'true',
     })
-    if (!s.ok) return json({ error: 'stripe_error', message: (s.data.error && s.data.error.message) || 'Stripe error' }, 502)
+    if (!s.ok) return json({ error: 'stripe_error', message: errMessage(s, 'Stripe error') }, 502)
     return json({ url: s.data.url })
   }
 
@@ -84,7 +153,7 @@ export async function handleBilling(request, env, user, url) {
       customer: user.stripe_customer_id,
       return_url: `${base}/`,
     })
-    if (!p.ok) return json({ error: 'stripe_error', message: (p.data.error && p.data.error.message) || 'Stripe error' }, 502)
+    if (!p.ok) return json({ error: 'stripe_error', message: errMessage(p, 'Stripe error') }, 502)
     return json({ url: p.data.url })
   }
 
@@ -92,30 +161,47 @@ export async function handleBilling(request, env, user, url) {
     return json(await refreshUserSubscription(env, user))
   }
 
+  // Switch between monthly and annual (prorated) without leaving the app.
+  if (path === '/api/billing/switch') {
+    if (!user.stripe_customer_id) return json({ error: 'no_customer', message: 'No subscription to change.' }, 400)
+    let body = {}
+    try { body = await request.json() } catch (e) {}
+    const interval = body.interval === 'year' ? 'year' : 'month'
+    const price = interval === 'year' ? env.STRIPE_PRICE_YEARLY : env.STRIPE_PRICE_MONTHLY
+    if (!price) return json({ error: 'billing_unconfigured', message: 'That plan is not available.' }, 400)
+    const sub = await activeSubscription(env, user.stripe_customer_id)
+    const item = sub && sub.items && sub.items.data && sub.items.data[0]
+    if (!sub || !item) return json({ error: 'no_subscription', message: 'No active subscription.' }, 400)
+    if (item.price && item.price.id === price) return json(await refreshUserSubscription(env, user))
+
+    const upd = await stripe(env, 'POST', `subscriptions/${sub.id}`, {
+      'items[0][id]': item.id,
+      'items[0][price]': price,
+      proration_behavior: 'create_prorations',
+      cancel_at_period_end: 'false',
+    })
+    if (!upd.ok) return json({ error: 'stripe_error', message: errMessage(upd, 'Stripe error') }, 502)
+    await applySubscriptionObject(env, user.id, user.stripe_customer_id, upd.data)
+    return json(await refreshUserSubscription(env, user))
+  }
+
+  // Cancel at period end (resume=false) or undo a pending cancellation (resume=true).
+  if (path === '/api/billing/cancel') {
+    if (!user.stripe_customer_id) return json({ error: 'no_customer', message: 'No subscription.' }, 400)
+    let body = {}
+    try { body = await request.json() } catch (e) {}
+    const resume = !!body.resume
+    const sub = await activeSubscription(env, user.stripe_customer_id)
+    if (!sub) return json({ error: 'no_subscription', message: 'No active subscription.' }, 400)
+    const upd = await stripe(env, 'POST', `subscriptions/${sub.id}`, {
+      cancel_at_period_end: resume ? 'false' : 'true',
+    })
+    if (!upd.ok) return json({ error: 'stripe_error', message: errMessage(upd, 'Stripe error') }, 502)
+    await applySubscriptionObject(env, user.id, user.stripe_customer_id, upd.data)
+    return json(await refreshUserSubscription(env, user))
+  }
+
   return json({ error: 'Not found' }, 404)
-}
-
-// Pull the latest subscription from Stripe and update the user's plan.
-export async function refreshUserSubscription(env, user) {
-  if (!user.stripe_customer_id) {
-    return { plan: user.plan || 'free', subscriptionStatus: user.subscription_status || null, planRenewsAt: user.plan_renews_at || null }
-  }
-  const subs = await stripe(env, 'GET', `subscriptions?customer=${encodeURIComponent(user.stripe_customer_id)}&status=all&limit=1`)
-  const sub = subs.ok ? ((subs.data.data || [])[0] || null) : null
-  if (!sub) {
-    await setPlan(env, user.id, 'free', null, null, null)
-    return { plan: 'free', subscriptionStatus: null, planRenewsAt: null }
-  }
-  const plan = ACTIVE_STATUSES.includes(sub.status) ? 'pro' : 'free'
-  const renewsAt = sub.current_period_end ? sub.current_period_end * 1000 : null
-  await setPlan(env, user.id, plan, sub.id, renewsAt, sub.status)
-  return { plan, subscriptionStatus: sub.status, planRenewsAt: renewsAt }
-}
-
-async function setPlan(env, userId, plan, subscriptionId, renewsAt, status) {
-  await env.DB.prepare(
-    'UPDATE users SET plan = ?, stripe_subscription_id = ?, plan_renews_at = ?, subscription_status = ? WHERE id = ?'
-  ).bind(plan, subscriptionId || null, renewsAt || null, status || null, userId).run()
 }
 
 // ---- webhook ---------------------------------------------------------------
@@ -158,14 +244,6 @@ async function applySubscriptionById(env, userId, customerId, subId) {
   const r = await stripe(env, 'GET', `subscriptions/${subId}`)
   if (!r.ok) return
   await applySubscriptionObject(env, userId, customerId, r.data)
-}
-
-async function applySubscriptionObject(env, userId, customerId, sub) {
-  const plan = ACTIVE_STATUSES.includes(sub.status) ? 'pro' : 'free'
-  const renewsAt = sub.current_period_end ? sub.current_period_end * 1000 : null
-  await env.DB.prepare(
-    'UPDATE users SET plan = ?, stripe_customer_id = ?, stripe_subscription_id = ?, subscription_status = ?, plan_renews_at = ? WHERE id = ?'
-  ).bind(plan, customerId || null, sub.id || null, sub.status || null, renewsAt, userId).run()
 }
 
 // Verify a Stripe-Signature header ("t=<ts>,v1=<sig>,...").

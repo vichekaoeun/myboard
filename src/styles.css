@@ -1398,6 +1398,28 @@ body.mb-selecting * { user-select: none !important; }
 .upgrade-price { margin-bottom: 4px; font-size: 15px; }
 .upgrade-price span { color: rgba(255, 235, 205, 0.55); font-size: 12.5px; }
 .modal-btns button[disabled] { opacity: 0.55; cursor: default; }
+
+.plan-status { display: flex; align-items: center; gap: 10px; margin: 2px 0 14px; flex-wrap: wrap; }
+.plan-status-note { color: rgba(255, 235, 205, 0.7); font-size: 13px; }
+.plan-actions { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 4px; }
+.plan-actions button {
+  border: 0;
+  border-radius: 9px;
+  padding: 11px 14px;
+  font: 700 13.5px 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f2e8d9;
+  transition: background 0.12s ease, transform 0.1s ease;
+}
+.plan-actions button:hover { background: rgba(255, 255, 255, 0.16); }
+.plan-actions button:active { transform: scale(0.99); }
+.plan-actions button.primary { background: var(--accent); color: #33230c; }
+.plan-actions button.primary:hover { background: #ebb04e; }
+.plan-actions button.danger { color: #ff9c9c; border: 1px solid rgba(224, 82, 82, 0.5); background: transparent; }
+.plan-actions button.danger:hover { background: rgba(224, 82, 82, 0.16); }
+.plan-actions button[disabled] { opacity: 0.55; cursor: default; }
+button.plan-chip { cursor: pointer; border: 0; }
 .tb-kbd {
   flex: none;
   min-width: 18px;

@@ -80,6 +80,8 @@ async function route(request, env, url, ctx) {
             plan: user.plan || 'free',
             subscriptionStatus: user.subscription_status || null,
             planRenewsAt: user.plan_renews_at || null,
+            planInterval: user.plan_interval || null,
+            cancelAtPeriodEnd: !!user.cancel_at_period_end,
           }
         : null,
     })

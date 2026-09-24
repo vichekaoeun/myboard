@@ -107,6 +107,14 @@ export function apiBillingRefresh() {
   return req('POST', '/api/billing/refresh')
 }
 
+export function apiBillingSwitch(interval) {
+  return req('POST', '/api/billing/switch', { interval })
+}
+
+export function apiBillingCancel(resume) {
+  return req('POST', '/api/billing/cancel', { resume })
+}
+
 // Live updates: the Worker pings "changed" whenever the board is saved, and
 // streams presence/activity. Auto-reconnects while mounted.
 function openSocket(path, onMessage) {
