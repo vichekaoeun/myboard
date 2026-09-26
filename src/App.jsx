@@ -11,7 +11,7 @@ import {
 import * as store from './store.js'
 import { pointerSelect } from './drag.js'
 import { CONNECTION_ORDER, CONNECTION_TYPES } from './connections.js'
-import { apiBillingCancel, apiBillingPortal, apiBillingRefresh, apiBillingSwitch, apiCheckout, apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, apiRevokeShare, apiSetShare } from './api.js'
+import { apiBillingCancel, apiBillingPortal, apiBillingRefresh, apiCheckout, apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, apiRevokeShare, apiSetShare } from './api.js'
 
 const TOOLS = [
   { id: 'move', label: 'Move', icon: MoveIcon },
@@ -323,13 +323,11 @@ export default function App() {
     say((res && res.error && res.error.message) || 'Could not open billing')
   }, [say])
 
-  const handleSwitch = useCallback(async (interval) => {
-    setBillingBusy(true)
-    const res = await apiBillingSwitch(interval)
-    setBillingBusy(false)
-    if (res && !res.error) setSession((s) => (s ? { ...s, ...res } : s))
-    else say((res && res.error && res.error.message) || 'Could not change plan')
-  }, [say])
+  const handleSwitch = useCallback(async () => {
+    // Plan changes (monthly <-> annual) are handled in Stripe's Billing Portal,
+    // where the customer sees the prorated amount and pays/confirms.
+    await handleManage()
+  }, [handleManage])
 
   const handleCancel = useCallback(async (resume) => {
     setBillingBusy(true)
@@ -1615,26 +1613,29 @@ function PlanDialog({ session, billing, busy, onBuy, onSwitch, onCancel, onManag
         </div>
 
         {isPro ? (
-          <div className="plan-actions">
-            {interval === 'month' && (
-              <button disabled={busy} onClick={() => onSwitch('year')}>Switch to annual · $24/yr</button>
-            )}
-            {interval === 'year' && (
-              <button disabled={busy} onClick={() => onSwitch('month')}>Switch to monthly · $3/mo</button>
-            )}
-            {canceling ? (
-              <button className="primary" disabled={busy} onClick={() => onCancel(false)}>Resume plan</button>
-            ) : (
-              <button
-                className="danger"
-                disabled={busy}
-                onClick={() => { if (window.confirm('Cancel Pro at the end of the current billing period?')) onCancel(true) }}
-              >
-                Cancel plan
-              </button>
-            )}
-            <button onClick={onManage}>Manage billing &amp; invoices</button>
-          </div>
+          <>
+            <div className="plan-actions">
+              {interval === 'month' && (
+                <button className="primary" onClick={onSwitch}>Switch to annual · $24/yr</button>
+              )}
+              {interval === 'year' && (
+                <button className="primary" onClick={onSwitch}>Switch to monthly · $3/mo</button>
+              )}
+              <button onClick={onManage}>Manage billing &amp; invoices</button>
+              {canceling ? (
+                <button disabled={busy} onClick={() => onCancel(false)}>Resume plan</button>
+              ) : (
+                <button
+                  className="danger"
+                  disabled={busy}
+                  onClick={() => { if (window.confirm('Cancel Pro at the end of the current billing period?')) onCancel(true) }}
+                >
+                  Cancel plan
+                </button>
+              )}
+            </div>
+            <p className="plan-note">Plan changes open Stripe, where you’ll see the prorated amount before paying.</p>
+          </>
         ) : (
           <>
             <ul className="upgrade-list">

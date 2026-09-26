@@ -1419,6 +1419,7 @@ body.mb-selecting * { user-select: none !important; }
 .plan-actions button.danger { color: #ff9c9c; border: 1px solid rgba(224, 82, 82, 0.5); background: transparent; }
 .plan-actions button.danger:hover { background: rgba(224, 82, 82, 0.16); }
 .plan-actions button[disabled] { opacity: 0.55; cursor: default; }
+.plan-note { margin: 10px 0 0; color: rgba(255, 235, 205, 0.55); font-size: 12px; line-height: 1.4; }
 button.plan-chip { cursor: pointer; border: 0; }
 .tb-kbd {
   flex: none;
