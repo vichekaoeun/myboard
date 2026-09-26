@@ -1010,63 +1010,44 @@ body.mb-selecting * { user-select: none !important; }
   100% { transform: rotate(0); }
 }
 
-.env-note-stack {
+.env-links {
   position: absolute;
-  top: 6%;
-  left: 10%;
-  width: 52px;
-  height: 72px;
-  z-index: 2;
-  pointer-events: none;
-}
-.env-stack-paper {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(#fdfaf1, #f0eadb);
-  border: 1px solid rgba(120, 100, 70, 0.4);
-  box-shadow: 0 1px 3px rgba(40, 25, 10, 0.3);
-}
-.env-stack-lines { position: absolute; inset: 14px 10px; display: flex; flex-direction: column; gap: 7px; }
-.env-stack-lines span { height: 2px; background: rgba(110, 130, 160, 0.4); border-radius: 2px; }
-
-.env-count {
-  position: absolute;
-  right: 10px;
-  bottom: 8px;
-  z-index: 6;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 7px;
-  border-radius: 11px;
-  background: rgba(122, 66, 44, 0.9);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  display: flex;
+  left: 12px;
+  top: 10px;
+  z-index: 7;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(122, 66, 44, 0.9);
+  color: #ffe9c9;
+  font: 600 11px 'Inter', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
 }
+.env-links svg { opacity: 0.9; }
 
 .env-toggle {
   position: absolute;
-  top: 6px;
-  right: 6px;
+  right: 10px;
+  bottom: 8px;
   z-index: 7;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   border: 0;
-  border-radius: 8px;
-  background: rgba(90, 58, 28, 0.85);
-  color: #ffe9c9;
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: 999px;
   padding: 3px 9px;
+  background: rgba(90, 58, 28, 0.82);
+  color: #ffe9c9;
+  font: 600 12px 'Inter', system-ui, sans-serif;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s ease, background 0.12s ease;
+  opacity: 0.92;
+  transition: background 0.12s ease, opacity 0.15s ease;
 }
-.env-toggle:hover { background: rgba(100, 65, 30, 0.95); }
-.envelope:hover .env-toggle,
-.envelope-selected .env-toggle { opacity: 1; }
+.env-toggle:hover { background: rgba(100, 65, 30, 0.98); opacity: 1; }
+.env-toggle-count { font-variant-numeric: tabular-nums; }
+.env-toggle-chev { font-size: 10px; line-height: 1; opacity: 0.9; }
 
 .env-title {
   position: absolute;

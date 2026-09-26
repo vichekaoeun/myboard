@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useRef } from 'react'
 import { EnvelopeClosed, EnvelopeFlapOpen } from './art.jsx'
+import { LinkIcon } from './icons.jsx'
 import { pointerSelect, startGroupDrag } from './drag.js'
 import { stackZ } from './stack.js'
 
@@ -29,7 +30,7 @@ export function fanPoses(env, noteIds, notes) {
 }
 
 export default memo(function EnvelopeView({
-  env, selected, primary, dropActive, getZoom,
+  env, selected, primary, dropActive, getZoom, linkCount = 0,
   onPointerSelect, onChange, onMoveEnd, onToggle, onContextMenu, readonly = false,
 }) {
   const wrapRef = useRef(null)
@@ -163,25 +164,21 @@ return (
       <div className="env-art">{env.expanded ? <EnvelopeFlapOpen /> : <EnvelopeClosed />}</div>
       <div className="env-texture" />
 
-      <div className="env-note-stack">
-        {!env.expanded &&
-          count > 0 &&
-          Array.from({ length: Math.min(3, count) }).map((_, i) => (
-            <div key={i} className="env-stack-paper" style={{ transform: `rotate(${9 - i * 10}deg)`, zIndex: 12 - i }}>
-              <div className="env-stack-lines"><span /><span /><span /></div>
-            </div>
-          ))}
-      </div>
-
-      <div className="env-count">{count}</div>
+      {!env.expanded && count > 0 && linkCount > 0 && (
+        <span className="env-links" title={`${linkCount} linked note${linkCount === 1 ? '' : 's'} inside`}>
+          <LinkIcon size={12} />
+          <span>{linkCount}</span>
+        </span>
+      )}
 
       <button
         className={`env-toggle ${env.expanded ? 'open' : ''}`}
-        title={env.expanded ? 'Tuck letters back in' : 'Open the envelope'}
+        title={env.expanded ? 'Tuck letters back in' : `Open the envelope (${count})`}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); onToggle(env.id) }}
       >
-        {env.expanded ? '▾' : `${count > 0 ? count + ' ' : ''}open`}
+        {count > 0 && <span className="env-toggle-count">{count}</span>}
+        <span className="env-toggle-chev" aria-hidden="true">{env.expanded ? '▴' : '▾'}</span>
       </button>
 
       {!env.expanded && (

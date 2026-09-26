@@ -37,6 +37,18 @@ export default function Board({
   const collab = useMemo(() => Object.values(cursors || {}), [cursors])
   // Keep collaborator labels a constant on-screen size regardless of zoom.
   const invZoom = 1 / ((getZoom && getZoom()) || 1)
+
+  // Count the links touching notes inside each envelope. Ropes are only drawn
+  // between loose notes, so an envelope shows an indicator instead.
+  const envLinkCounts = useMemo(() => {
+    const noteEnv = new Map(notes.map((n) => [n.id, n.groupId]))
+    const m = new Map()
+    links.forEach((l) => {
+      const gid = noteEnv.get(l.from) || noteEnv.get(l.to)
+      if (gid) m.set(gid, (m.get(gid) || 0) + 1)
+    })
+    return m
+  }, [notes, links])
   // Strings present when the board opened shouldn't "draw in"; only ones added
   // during this session animate. This ref is seeded once on first render.
   const initialLinksRef = useRef(null)
@@ -285,6 +297,7 @@ export default function Board({
             dropActive={hoverEnvId === env.id}
             getZoom={getZoom}
             readonly={readonly}
+            linkCount={envLinkCounts.get(env.id) || 0}
             onPointerSelect={onPointerSelect}
             onChange={onEnvChange}
             onMoveEnd={onEnvMoveEnd}
