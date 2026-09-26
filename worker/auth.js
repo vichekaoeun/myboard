@@ -56,7 +56,7 @@ export async function getSession(request, env) {
   const [uid, exp] = payload.split('.')
   if (!uid || !exp || Date.now() > Number(exp)) return null
   const row = await env.DB
-    .prepare('SELECT id, email, name, picture, plan, plan_renews_at, subscription_status, plan_interval, cancel_at_period_end FROM users WHERE id = ?')
+    .prepare('SELECT id, email, name, picture, plan, plan_renews_at, subscription_status, plan_interval, cancel_at_period_end, stripe_customer_id FROM users WHERE id = ?')
     .bind(uid).first()
   return row || null
 }

@@ -43,8 +43,8 @@ PUBLIC_BASE_URL = "https://simpleboard.cc"
 # Secrets to set separately:
 #   npx wrangler secret put STRIPE_SECRET_KEY
 #   npx wrangler secret put STRIPE_WEBHOOK_SECRET
-STRIPE_PRICE_MONTHLY = ""
-STRIPE_PRICE_YEARLY = ""
+STRIPE_PRICE_MONTHLY = "price_1UJjKvL7K8v8EfFtEUvPc36p"
+STRIPE_PRICE_YEARLY = "price_1UJjLmL7K8v8EfFtNGYHOemL"
 
 # Custom domain (Cloudflare-managed; the zone must be in this account).
 # www is also attached so it resolves and the Worker redirects it to the apex.
