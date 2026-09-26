@@ -151,7 +151,7 @@ export async function handleBilling(request, env, user, url) {
     const base = baseUrl(request, env)
     const p = await stripe(env, 'POST', 'billing_portal/sessions', {
       customer: user.stripe_customer_id,
-      return_url: `${base}/`,
+      return_url: `${base}/?billing=portal`,
     })
     if (!p.ok) return json({ error: 'stripe_error', message: errMessage(p, 'Stripe error') }, 502)
     return json({ url: p.data.url })

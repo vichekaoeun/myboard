@@ -361,6 +361,11 @@ export default function App() {
         })
     } else if (b === 'cancel') {
       say('Upgrade cancelled')
+    } else if (b === 'portal') {
+      // Returned from Stripe's Billing Portal (plan change/cancel) — resync.
+      apiBillingRefresh()
+        .then(() => apiMe())
+        .then((res) => { if (res && res.user) setSession(res.user) })
     }
   }, [authChecked, shareToken, say])
 
