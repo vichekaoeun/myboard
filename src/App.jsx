@@ -17,7 +17,6 @@ const TOOLS = [
   { id: 'move', label: 'Move', icon: MoveIcon },
   { id: 'note', label: 'Note', icon: NoteIcon },
   { id: 'pin', label: 'Pin', icon: PinIcon },
-  { id: 'envelope', label: 'Envelope', icon: EnvelopeIcon },
   { id: 'link', label: 'Link', icon: LinkIcon },
 ]
 
@@ -239,12 +238,11 @@ export default function App() {
     localStorage.setItem(seedFlag, '1')
     const welcome = store.addNote(-430, -150, '<p>Hi, welcome to your board!</p><p>Double-click anywhere (or hit <b>Note</b> above) to drop new notes.</p>', 'white')
     store.addNote(-80, 40, '<p>Drag the <b>red pin</b> up top to move this note.</p><p>Grab the bottom-right corner to resize it.</p><p>Select me to see formatting buttons below.</p>', 'yellow')
-    const envelopeNote = store.addNote(120, -260, '<p>Drag this note into the envelope below to collect it with your other letters.</p>', 'blue')
+    const linkNote = store.addNote(120, -260, '<p>Use the <b>Link</b> tool to tie a red string from this note to another.</p>', 'blue')
     store.addNote(340, 20, '<p>Type a URL and use the <b>↗</b> button to attach a live link.</p><p>Or paste a picture — it gets saved right here.</p>', 'pink')
-    store.addEnvelope(80, 260)
     store.addPin(-560, -40, '#3a7bd5')
     // A sample red string so linking is discoverable (use the Link tool)
-    store.addLink(welcome.id, envelopeNote.id)
+    store.addLink(welcome.id, linkNote.id)
     // Persist the seed right away so a quick reload can't lose it while the
     // debounced save is still pending.
     store.saveNow()
@@ -776,18 +774,11 @@ export default function App() {
     if (ctx.kind === 'bg') {
       base.push({ label: 'Add note here', icon: '＋', run: () => store.addNote(ctx.wx, ctx.wy) })
       base.push({ label: 'Add location pin here', icon: '⍟', run: () => handleAddPin(ctx.wx, ctx.wy) })
-      base.push({ label: 'Add envelope here', icon: '✉', run: () => store.addEnvelope(ctx.wx, ctx.wy) })
       base.push({ label: 'Fit everything in view', icon: '◱', run: fitView })
     } else if (ctx.kind === 'note') {
       const it = ctx.item
       base.push({ label: dupLabel, icon: '❐', run: () => batchDuplicate(it.id) })
-      base.push({ label: 'Take out of envelope', icon: '⌧', run: () => store.detachNote(it.id), show: !!it.groupId })
       base.push({ label: delLabel('Delete note'), icon: '×', run: () => batchDelete(it.id), danger: true })
-    } else if (ctx.kind === 'env') {
-      const it = ctx.item
-      base.push({ label: it.expanded ? 'Tuck letters back in' : 'Open envelope', icon: '✉', run: () => store.toggleEnvelope(it.id) })
-      base.push({ label: dupLabel, icon: '❐', run: () => batchDuplicate(it.id) })
-      base.push({ label: delLabel('Delete envelope'), icon: '×', run: () => batchDelete(it.id), danger: true })
     } else if (ctx.kind === 'pin') {
       base.push({ label: 'Edit location', icon: '⌖', run: () => handleEditLocation(ctx.item) })
       base.push({ label: dupLabel, icon: '❐', run: () => batchDuplicate(ctx.item.id) })
@@ -947,7 +938,7 @@ export default function App() {
       if (key === 'f') { fitView(); return }
       if (key === ']') { store.bringToFront(); return }
       if (key === '[') { store.sendToBack(); return }
-      const toolMap = { '1': 'move', '2': 'note', '3': 'pin', '4': 'envelope', '5': 'link', m: 'move', n: 'note', p: 'pin', e: 'envelope', l: 'link' }
+      const toolMap = { '1': 'move', '2': 'note', '3': 'pin', '5': 'link', m: 'move', n: 'note', p: 'pin', l: 'link' }
       if (toolMap[key]) store.setMode(toolMap[key])
     }
     // Capture phase so shortcuts still work when a note editor (which stops
@@ -1093,7 +1084,7 @@ export default function App() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onBlur={() => setTimeout(() => setQuery(''), 180)}
-            placeholder="Search notes & letters…"
+            placeholder="Search notes…"
             spellCheck={false}
           />
           {matches.length > 0 && (
@@ -1413,7 +1404,6 @@ function toolTitle(id) {
     move: 'Move (1 / M) — drag empty board to pan',
     note: 'Note (2 / N) — click the board to drop one',
     pin: 'Pin (3 / P) — click the board to drop a location',
-    envelope: 'Envelope (4 / E) — click the board to place one',
     link: 'Link (5 / L) — pick a type, then click two notes',
   }[id]
 }
@@ -1450,18 +1440,10 @@ function HelpDialog({ onClose, onFit, onExport }) {
             </ul>
           </div>
           <div>
-            <h3>Envelopes</h3>
-            <ul>
-              <li><b>Drag a note onto</b> an envelope to collect it</li>
-              <li>Drag notes again anywhere else to pop them out</li>
-              <li>Click “open” (or double-click) to fan the letters out</li>
-            </ul>
-          </div>
-          <div>
             <h3>Everything</h3>
             <ul>
               <li>Auto-saves to your browser (IndexedDB)</li>
-              <li><b>Search</b> finds text inside notes &amp; envelopes</li>
+              <li><b>Search</b> finds text inside your notes</li>
               <li>Undo / redo — Ctrl+Z, Ctrl+Shift+Z</li>
               <li>Delete key removes the selected item</li>
               <li>Export / import — keep a backup file</li>
@@ -1470,7 +1452,7 @@ function HelpDialog({ onClose, onFit, onExport }) {
           <div>
             <h3>Shortcuts</h3>
             <ul>
-              <li><b>1–5</b> (or <b>M N P E L</b>) — tools</li>
+              <li><b>1–5</b> (or <b>M N P L</b>) — tools</li>
               <li><b>I</b> image · <b>A</b> audio · <b>C</b> link card</li>
               <li><b>D</b> duplicate · <b>F</b> fit · <b>?</b> help</li>
               <li><b>]</b> bring to front · <b>[</b> send to back (add Ctrl/Cmd while typing)</li>

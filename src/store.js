@@ -297,7 +297,7 @@ function hydrate(saved) {
         clips: saved.clips || [],
         music: saved.music || [],
         cards: Array.isArray(saved.cards) ? saved.cards : [],
-        envelopes: saved.envelopes || [],
+        envelopes: [],
         links: Array.isArray(saved.links) ? saved.links : [],
         selected: null,
         selectedIds: [],
@@ -340,25 +340,14 @@ function hydrate(saved) {
     })
     delete n.attachments
   })
-  merged.envelopes = merged.envelopes.map((e, i) => ({
-    id: e.id || uid() + i,
-    x: isFinite(e.x) ? e.x : 0, y: isFinite(e.y) ? e.y : 0,
-    w: e.w || 300, h: e.h || 210,
-    title: e.title || 'Untitled', noteIds: e.noteIds || [], expanded: !!e.expanded,
-  }))
   merged.pins = merged.pins.map((p, i) => ({
     id: p.id || uid() + i,
     x: isFinite(p.x) ? p.x : 0, y: isFinite(p.y) ? p.y : 0,
     color: p.color || '#d64545', location: p.location || null,
   }))
-  merged.envelopes.forEach((e) => {
-    const ids = new Set(e.noteIds)
-    merged.notes.forEach((n) => {
-      const inEnv = ids.has(n.id)
-      if (inEnv && n.groupId !== e.id) n.groupId = e.id
-      if (!inEnv && n.groupId === e.id) n.groupId = null
-    })
-  })
+  // Envelopes are removed: contained notes are already ungrouped above, so they
+  // simply appear on the board (nothing is lost).
+  merged.envelopes = []
   const noteIdSet = new Set(merged.notes.map((n) => n.id))
   merged.links = (merged.links || [])
     .filter((l) => l && noteIdSet.has(l.from) && noteIdSet.has(l.to) && l.from !== l.to)
@@ -1219,13 +1208,13 @@ export function importState(data) {
       h: n.h || 300,
       color: n.color || 'white',
       rotation: n.rotation ?? 0,
-      groupId: n.groupId || null,
+      groupId: null,
     })),
     pins: (data.pins || []).map((p) => ({ ...p, location: p.location || null })),
     clips: (data.clips || []).map((c) => ({ ...c, w: c.w || 220, h: c.h || 180 })).filter((c) => c.url),
     music: (data.music || []).map((m) => ({ ...m, w: m.w || 320, h: m.h || 180, title: m.title || 'Untitled mixtape' })).filter((m) => m.url),
     cards: (data.cards || []).map((c) => ({ ...c, w: c.w || 300, h: c.h || 300 })).filter((c) => c.url),
-    envelopes: data.envelopes || [],
+    envelopes: [],
     links: Array.isArray(data.links) ? data.links : [],
   }
   const legacyClips = []
@@ -1245,13 +1234,6 @@ export function importState(data) {
     return note
   })
   s.clips.push(...legacyClips)
-  s.envelopes.forEach((e) => {
-    const ids = new Set(e.noteIds || [])
-    s.notes.forEach((n) => {
-      if (ids.has(n.id)) n.groupId = e.id
-      else if (n.groupId === e.id) n.groupId = null
-    })
-  })
   const importedIds = new Set(s.notes.map((n) => n.id))
   s.links = s.links
     .filter((l) => l && importedIds.has(l.from) && importedIds.has(l.to) && l.from !== l.to)
@@ -1339,12 +1321,14 @@ export function setCloudUser(userId) {
 
 function cloudPayload() {
   return JSON.stringify({
-    notes: state.notes,
+    // Envelopes are gone, and notes are never grouped now — keep both off the
+    // wire so legacy grouping can't come back from the cloud.
+    notes: state.notes.map((n) => (n.groupId ? { ...n, groupId: null } : n)),
     pins: state.pins,
     clips: state.clips,
     music: state.music,
     cards: state.cards || [],
-    envelopes: state.envelopes,
+    envelopes: [],
     links: state.links || [],
     view: state.view,
   })
@@ -1405,14 +1389,16 @@ function applyRemote(rawPayload) {
     return
   }
   if (!remote || !Array.isArray(remote.notes)) return
+  // Migrate away any legacy envelopes/grouping from the cloud payload.
+  const remoteNotes = remote.notes.map((n) => (n.groupId ? { ...n, groupId: null } : n))
   const localJson = cloudPayload()
   const remoteJson = JSON.stringify({
-    notes: remote.notes,
+    notes: remoteNotes,
     pins: remote.pins || [],
     clips: remote.clips || [],
     music: remote.music || [],
     cards: remote.cards || [],
-    envelopes: remote.envelopes || [],
+    envelopes: [],
     links: remote.links || [],
     view: remote.view,
   })
@@ -1422,12 +1408,12 @@ function applyRemote(rawPayload) {
   // pulls) nor push the same data straight back to the server.
   state = {
     ...state,
-    notes: remote.notes || [],
+    notes: remoteNotes,
     pins: remote.pins || [],
     clips: remote.clips || [],
     music: remote.music || [],
     cards: remote.cards || [],
-    envelopes: remote.envelopes || [],
+    envelopes: [],
     links: remote.links || [],
     view: state.view.s === undefined ? remote.view || state.view : state.view,
   }
