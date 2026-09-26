@@ -1628,12 +1628,12 @@ function PlanDialog({ session, billing, busy, onBuy, onSwitch, onCancel, onManag
               )}
               <button onClick={onManage}>Manage billing &amp; invoices</button>
               {canceling ? (
-                <button disabled={busy} onClick={() => onCancel(false)}>Resume plan</button>
+                <button disabled={busy} onClick={() => onCancel(true)}>Resume plan</button>
               ) : (
                 <button
                   className="danger"
                   disabled={busy}
-                  onClick={() => { if (window.confirm('Cancel Pro at the end of the current billing period?')) onCancel(true) }}
+                  onClick={() => { if (window.confirm('Cancel Pro at the end of the current billing period?')) onCancel(false) }}
                 >
                   Cancel plan
                 </button>
