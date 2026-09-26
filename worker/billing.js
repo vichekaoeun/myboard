@@ -45,6 +45,15 @@ async function activeSubscription(env, customerId) {
   return subs.ok ? ((subs.data.data || [])[0] || null) : null
 }
 
+// Newer Stripe API versions moved the period end from the subscription onto
+// its item; read whichever is present so it works on any API version.
+function periodEnd(sub) {
+  if (sub && typeof sub.current_period_end === 'number') return sub.current_period_end
+  const item = sub && sub.items && sub.items.data && sub.items.data[0]
+  if (item && typeof item.current_period_end === 'number') return item.current_period_end
+  return null
+}
+
 // Map a Stripe subscription onto our plan fields.
 function planFromSub(env, sub) {
   const active = ACTIVE_STATUSES.includes(sub.status)
@@ -52,11 +61,12 @@ function planFromSub(env, sub) {
   let interval = null
   if (priceId && env.STRIPE_PRICE_YEARLY && priceId === env.STRIPE_PRICE_YEARLY) interval = 'year'
   else if (priceId && env.STRIPE_PRICE_MONTHLY && priceId === env.STRIPE_PRICE_MONTHLY) interval = 'month'
+  const end = periodEnd(sub)
   return {
     plan: active ? 'pro' : 'free',
     interval,
     status: sub.status || null,
-    renewsAt: sub.current_period_end ? sub.current_period_end * 1000 : null,
+    renewsAt: end ? end * 1000 : null,
     cancelAtPeriodEnd: !!sub.cancel_at_period_end,
   }
 }

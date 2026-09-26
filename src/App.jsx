@@ -369,6 +369,14 @@ export default function App() {
     }
   }, [authChecked, shareToken, say])
 
+  // Opening the plan dialog resyncs from Stripe (renewal date, cancellation).
+  useEffect(() => {
+    if (!upgradeOpen || !session) return
+    apiBillingRefresh().then((res) => {
+      if (res && !res.error && res.plan) setSession((s) => (s ? { ...s, ...res } : s))
+    })
+  }, [upgradeOpen])
+
   // Two-click linking: pick a note, then the note to tie it to.
   const handleLinkClick = useCallback((id) => {
     const from = linkFromRef.current
