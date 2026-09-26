@@ -1,7 +1,7 @@
 // Session-cookie auth: passwordless magic link + Google OAuth. Stateless signed
 // cookie (HMAC) so there is no session table to read on every request.
 
-import { hmac, randomToken, sha256hex } from './crypto.js'
+import { hmac, randomToken, seal, sha256hex } from './crypto.js'
 import { sendMagicLink } from './email.js'
 
 const COOKIE = 'mb_session'
@@ -61,19 +61,23 @@ export async function getSession(request, env) {
   return row || null
 }
 
-export async function upsertUser(env, { email, name, picture, provider }) {
+export async function upsertUser(env, { email, name, picture, provider, googleRefreshToken }) {
   const mail = String(email || '').trim().toLowerCase()
   if (!mail) return null
   const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(mail).first()
   if (existing) {
     await env.DB.prepare('UPDATE users SET name = ?, picture = ? WHERE id = ?')
       .bind(name || '', picture || '', existing.id).run()
+    if (googleRefreshToken) {
+      await env.DB.prepare('UPDATE users SET google_refresh_token = ? WHERE id = ?')
+        .bind(await seal(env.SESSION_SECRET, googleRefreshToken), existing.id).run()
+    }
     return { id: existing.id, email: mail, name: name || '', picture: picture || '' }
   }
   const id = crypto.randomUUID()
   await env.DB.prepare(
-    'INSERT INTO users (id, email, name, picture, provider, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).bind(id, mail, name || '', picture || '', provider || 'email', Date.now()).run()
+    'INSERT INTO users (id, email, name, picture, provider, google_refresh_token, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind(id, mail, name || '', picture || '', provider || 'email', googleRefreshToken ? await seal(env.SESSION_SECRET, googleRefreshToken) : null, Date.now()).run()
   return { id, email: mail, name: name || '', picture: picture || '' }
 }
 
@@ -135,10 +139,10 @@ export function googleStart(request, env) {
     client_id: env.GOOGLE_CLIENT_ID || '',
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope: 'openid email profile',
+     scope: 'openid email profile https://www.googleapis.com/auth/spreadsheets.readonly',
     state,
-    access_type: 'online',
-    prompt: 'select_account',
+     access_type: 'offline',
+     prompt: 'consent select_account',
   })
   return new Response(null, {
     status: 302,
@@ -194,6 +198,7 @@ export async function googleCallback(request, env) {
 
   const user = await upsertUser(env, {
     email: info.email, name: info.name, picture: info.picture, provider: 'google',
+    googleRefreshToken: tokens.refresh_token,
   })
   const setCookie = await setSessionCookie(env, user)
   const headers = new Headers({ Location: `${base}/` })

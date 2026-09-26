@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
   stripe_customer_id     TEXT,
   stripe_subscription_id TEXT,
   subscription_status    TEXT,
+  google_refresh_token   TEXT,
   created_at  INTEGER NOT NULL
 );
 

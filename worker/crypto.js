@@ -48,6 +48,28 @@ export async function sha256hex(data) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
+async function secretKey(secret) {
+  const raw = await crypto.subtle.digest('SHA-256', enc.encode(secret || 'dev-secret'))
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+}
+
+export async function seal(secret, value) {
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const key = await secretKey(secret)
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(value))
+  return `${b64url(iv)}.${b64url(new Uint8Array(encrypted))}`
+}
+
+export async function unseal(secret, value) {
+  const [ivPart, dataPart] = String(value || '').split('.')
+  if (!ivPart || !dataPart) return null
+  try {
+    const key = await secretKey(secret)
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64url(ivPart) }, key, fromB64url(dataPart))
+    return new TextDecoder().decode(plain)
+  } catch (e) { return null }
+}
+
 export function randomToken(bytes = 32) {
   const b = new Uint8Array(bytes)
   crypto.getRandomValues(b)

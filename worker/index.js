@@ -8,10 +8,15 @@ import { handleBoard, boardSocket, accountSocket } from './board.js'
 import { handleShare, shareSocket } from './share.js'
 import { handleBilling, handleBillingWebhook, billingConfigured } from './billing.js'
 import { handleLinkPreview } from './preview.js'
+import { runAutomations } from './automation.js'
 
 export { Room } from './room.js'
 
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runAutomations(env))
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
     // Canonicalise www → apex so there's a single origin (and one session).

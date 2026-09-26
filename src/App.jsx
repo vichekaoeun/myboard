@@ -609,7 +609,14 @@ export default function App() {
   const handleChartMoveEnd = useCallback((id, x, y) => store.moveChart(id, x, y), [])
   const handleChartResizeEnd = useCallback((id, w, h) => store.updateChart(id, { w, h }), [])
   const openChartEditor = useCallback((chart) => {
-    setChartEditor({ id: chart.id, title: chart.title || 'Chart', kind: chart.kind || 'bar', text: dataToText(chart.data) })
+    const a = chart.automation || {}
+    setChartEditor({
+      id: chart.id, title: chart.title || 'Chart', kind: chart.kind || 'bar', text: dataToText(chart.data),
+      automated: !!a.enabled, sourceKind: a.kind || 'rest', sourceUrl: a.url || '', sourceFormat: a.format || 'json',
+      rowsPath: a.rowsPath || '', labelPath: a.labelPath || 'label', valuePath: a.valuePath || 'value',
+      sheetRange: a.range || 'Sheet1!A:B', sheetLabelColumn: a.labelColumn || 'A', sheetValueColumn: a.valueColumn || 'B',
+      intervalMs: String(a.intervalMs || 300000), lastError: a.lastError || '',
+    })
   }, [])
   const addChartAt = useCallback((x, y) => {
     const data = [{ label: 'A', value: 4 }, { label: 'B', value: 7 }, { label: 'C', value: 3 }, { label: 'D', value: 5 }]
@@ -622,12 +629,34 @@ export default function App() {
       : { x: 0, y: 0 }
     addChartAt(point.x - 160, point.y - 130)
   }, [addChartAt])
-  const saveChart = useCallback(() => {
-    setChartEditor((cur) => {
-      if (cur) store.updateChart(cur.id, { title: (cur.title || '').trim() || 'Chart', kind: cur.kind, data: parseChartText(cur.text) })
-      return null
+  const saveChart = useCallback((editor = chartEditor) => {
+    if (!editor) return
+    const existing = store.getState().charts.find((chart) => chart.id === editor.id)
+    const hasSource = editor.sourceUrl.trim()
+    const automation = editor.automated && hasSource
+      ? {
+          ...(existing && existing.automation), enabled: true, kind: editor.sourceKind,
+          url: editor.sourceKind === 'rest' ? editor.sourceUrl.trim() : '', format: editor.sourceFormat,
+          spreadsheetUrl: editor.sourceKind === 'google-sheets' ? editor.sourceUrl.trim() : '',
+          range: editor.sheetRange.trim() || 'Sheet1!A:B', labelColumn: editor.sheetLabelColumn.trim() || 'A', valueColumn: editor.sheetValueColumn.trim() || 'B',
+          rowsPath: editor.rowsPath.trim(), labelPath: editor.labelPath.trim() || 'label', valuePath: editor.valuePath.trim() || 'value',
+          intervalMs: Number(editor.intervalMs) || 300000, nextRunAt: 0, lastError: '',
+        }
+      : { ...(existing && existing.automation), enabled: false }
+    store.updateChart(editor.id, {
+      title: (editor.title || '').trim() || 'Chart', kind: editor.kind,
+      data: editor.automated ? (existing ? existing.data : parseChartText(editor.text)) : parseChartText(editor.text),
+      automation,
     })
-  }, [])
+    setChartEditor(null)
+  }, [chartEditor])
+
+  const connectGoogleSheets = useCallback(async () => {
+    saveChart()
+    store.saveNow()
+    await store.pushNow()
+    apiLoginWithGoogle()
+  }, [saveChart])
 
   const refreshCard = useCallback(async (card) => {
     say('Refreshing preview…')
@@ -1395,6 +1424,69 @@ export default function App() {
               value={chartEditor.text}
               onChange={(e) => setChartEditor((c) => ({ ...c, text: e.target.value }))}
             />
+
+            <div className="chart-auto-head">
+              <label className="location-photo-label" htmlFor="chart-auto-enabled">Scheduled data refresh</label>
+              <label className="chart-auto-toggle">
+                <input
+                  id="chart-auto-enabled"
+                  type="checkbox"
+                  checked={chartEditor.automated}
+                  onChange={(e) => setChartEditor((c) => ({ ...c, automated: e.target.checked }))}
+                />
+                Enable
+              </label>
+            </div>
+            {chartEditor.automated && (
+              <div className="chart-automation">
+                <div className="chart-auto-tabs">
+                  <button type="button" className={`chart-kind-tab ${chartEditor.sourceKind === 'rest' ? 'on' : ''}`} onClick={() => setChartEditor((c) => ({ ...c, sourceKind: 'rest' }))}>REST / CSV</button>
+                  <button type="button" className={`chart-kind-tab ${chartEditor.sourceKind === 'google-sheets' ? 'on' : ''}`} onClick={() => setChartEditor((c) => ({ ...c, sourceKind: 'google-sheets' }))}>Google Sheets</button>
+                </div>
+                <input
+                  className="location-input"
+                  placeholder={chartEditor.sourceKind === 'google-sheets' ? 'Google Sheets URL' : 'Public JSON or CSV URL'}
+                  value={chartEditor.sourceUrl}
+                  onChange={(e) => setChartEditor((c) => ({ ...c, sourceUrl: e.target.value }))}
+                />
+                <div className="chart-auto-grid">
+                  {chartEditor.sourceKind === 'rest' && <label className="location-photo-label">Format
+                    <select className="location-input" value={chartEditor.sourceFormat} onChange={(e) => setChartEditor((c) => ({ ...c, sourceFormat: e.target.value }))}>
+                      <option value="json">JSON</option>
+                      <option value="csv">CSV</option>
+                    </select>
+                  </label>}
+                  <label className="location-photo-label">Refresh
+                    <select className="location-input" value={chartEditor.intervalMs} onChange={(e) => setChartEditor((c) => ({ ...c, intervalMs: e.target.value }))}>
+                      <option value="300000">Every 5 minutes</option>
+                      <option value="900000">Every 15 minutes</option>
+                      <option value="3600000">Every hour</option>
+                      <option value="86400000">Daily</option>
+                    </select>
+                  </label>
+                </div>
+                {chartEditor.sourceKind === 'google-sheets' ? (
+                  <div className="chart-auto-grid chart-auto-paths">
+                    <input className="location-input" placeholder="Range, e.g. Sheet1!A:B" value={chartEditor.sheetRange} onChange={(e) => setChartEditor((c) => ({ ...c, sheetRange: e.target.value }))} />
+                    <input className="location-input" placeholder="Label column" value={chartEditor.sheetLabelColumn} onChange={(e) => setChartEditor((c) => ({ ...c, sheetLabelColumn: e.target.value }))} />
+                    <input className="location-input" placeholder="Value column" value={chartEditor.sheetValueColumn} onChange={(e) => setChartEditor((c) => ({ ...c, sheetValueColumn: e.target.value }))} />
+                  </div>
+                ) : chartEditor.sourceFormat === 'json' && (
+                  <div className="chart-auto-grid chart-auto-paths">
+                    <input className="location-input" placeholder="Rows path, e.g. data.items" value={chartEditor.rowsPath} onChange={(e) => setChartEditor((c) => ({ ...c, rowsPath: e.target.value }))} />
+                    <input className="location-input" placeholder="Label field" value={chartEditor.labelPath} onChange={(e) => setChartEditor((c) => ({ ...c, labelPath: e.target.value }))} />
+                    <input className="location-input" placeholder="Value field" value={chartEditor.valuePath} onChange={(e) => setChartEditor((c) => ({ ...c, valuePath: e.target.value }))} />
+                  </div>
+                )}
+                {chartEditor.sourceKind === 'google-sheets' ? (
+                  <div className="chart-auto-google">
+                    <p className="chart-auto-note">Reconnect your Google account to approve Sheets access, then choose a range with a label and value column.</p>
+                    <button type="button" className="location-cancel" onClick={connectGoogleSheets}>Connect Google Sheets</button>
+                  </div>
+                ) : <p className="chart-auto-note">Public sources only. JSON rows must contain label and value fields, or use the mappings above.</p>}
+                {chartEditor.lastError && <p className="chart-auto-error">Last refresh failed: {chartEditor.lastError}</p>}
+              </div>
+            )}
 
             <div className="location-actions">
               <button className="location-cancel" onClick={() => setChartEditor(null)}>Cancel</button>

@@ -2144,3 +2144,15 @@ button.plan-chip { cursor: pointer; border: 0; }
 }
 .chart-kind-tab.on { background: var(--accent); color: #33230c; border-color: var(--accent); }
 .chart-data-input { font-family: ui-monospace, 'SF Mono', monospace; resize: vertical; padding: 10px; line-height: 1.5; }
+.chart-auto-head { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
+.chart-auto-toggle { display: flex; align-items: center; gap: 6px; color: #f2e8d9; font: 600 12px 'Inter', system-ui, sans-serif; }
+.chart-automation { display: grid; gap: 8px; margin-top: 6px; }
+.chart-auto-tabs { display: flex; gap: 8px; }
+.chart-auto-tabs .chart-kind-tab { padding: 6px 8px; font-size: 11px; }
+.chart-auto-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.chart-auto-grid label { display: grid; gap: 5px; }
+.chart-auto-paths { grid-template-columns: 1.2fr 1fr 1fr; }
+.chart-auto-note, .chart-auto-error { margin: 0; font: 500 11px/1.4 'Inter', system-ui, sans-serif; color: rgba(255, 235, 205, 0.58); }
+.chart-auto-error { color: #ffb0a7; }
+.chart-auto-google { display: grid; gap: 8px; }
+@media (max-width: 560px) { .chart-auto-grid, .chart-auto-paths { grid-template-columns: 1fr; } }

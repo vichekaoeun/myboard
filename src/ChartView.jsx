@@ -211,7 +211,9 @@ export default memo(function ChartView({
     >
       <div className="chart-head">
         <span className="chart-title">{item.title || 'Chart'}</span>
-        <span className="chart-kind">{(item.kind || 'bar').toUpperCase()}</span>
+        <span className="chart-kind" title={item.automation?.lastError || (item.automation?.enabled ? 'Scheduled refresh enabled' : '')}>
+          {item.automation?.enabled ? 'AUTO' : (item.kind || 'bar').toUpperCase()}
+        </span>
       </div>
       <div className="chart-body">
         <ChartSvg item={item} width={item.w - 16} height={item.h - 40} />

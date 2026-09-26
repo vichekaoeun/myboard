@@ -28,7 +28,7 @@ function boardLimit(plan) {
 
 function emptyPayload() {
   return JSON.stringify({
-    notes: [], pins: [], clips: [], music: [], cards: [], envelopes: [], links: [],
+    notes: [], pins: [], clips: [], music: [], cards: [], charts: [], envelopes: [], links: [],
     view: { x: 0, y: 0, s: 1 },
   })
 }

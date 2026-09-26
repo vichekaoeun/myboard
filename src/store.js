@@ -1385,7 +1385,11 @@ function cloudPayload() {
 }
 
 export async function pushNow() {
-  if (!cloudEnabled || cloudPushBusy) return
+  if (!cloudEnabled) return
+  // A save can already be in flight when an action needs a durable write
+  // before navigating away (for example, OAuth). Wait for it, then push the
+  // newest state instead of silently losing the second change.
+  while (cloudPushBusy) await new Promise((resolve) => setTimeout(resolve, 25))
   if (!sharedToken && !boardRowId) return
   if (sharedToken && sharedMode !== 'edit') return
   const version = localVersion
