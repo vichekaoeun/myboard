@@ -4,6 +4,7 @@ import PinView from './PinView.jsx'
 import ClipView from './ClipView.jsx'
 import MusicView from './MusicView.jsx'
 import CardView from './CardView.jsx'
+import ChartView from './ChartView.jsx'
 import EnvelopeView, { fanPoses } from './Envelope.jsx'
 import { ropeGeometry } from './ropes.js'
 import { connType } from './connections.js'
@@ -11,8 +12,8 @@ import { connType } from './connections.js'
 const WORLD_SIZE = 240000
 
 export default function Board({
-  containerRef, worldLayerRef, cameraRef, notes, pins, clips, music, cards = [], envelopes, links = [], connections = null, linkFrom = null, selected, selectedIds = [], mode, getZoom, tick,
-  onSelect, onPointerSelect, onSelectMany, onChange, onLiveHeight, onEnvChange, onMoveEnd, onEnvMoveEnd, onPinMoveEnd, onClipMoveEnd, onClipResizeEnd, onMusicMoveEnd, onMusicResizeEnd, onCardMoveEnd, onCardResizeEnd, onOpenCard, onFanDrop, onDragMove,
+  containerRef, worldLayerRef, cameraRef, notes, pins, clips, music, cards = [], charts = [], envelopes, links = [], connections = null, linkFrom = null, selected, selectedIds = [], mode, getZoom, tick,
+  onSelect, onPointerSelect, onSelectMany, onChange, onLiveHeight, onEnvChange, onMoveEnd, onEnvMoveEnd, onPinMoveEnd, onClipMoveEnd, onClipResizeEnd, onMusicMoveEnd, onMusicResizeEnd, onCardMoveEnd, onCardResizeEnd, onOpenCard, onChartMoveEnd, onChartResizeEnd, onOpenChart, onFanDrop, onDragMove,
   onAddNote, onAddPin, onAddClip, onAddEnvelope, onToggleEnvelope,
   onCtxBackground, onCtxItem, onEditLocation, onResizeLocation, onLinkClick, onOpenLink, onCtxLink, hoverEnvId,
   readonly = false, cursors = {}, onReportCursor,
@@ -31,9 +32,10 @@ export default function Board({
     clips.forEach((c) => m.set(c.id, { x: c.x, y: c.y, w: c.w || 220, h: c.h || 180 }))
     music.forEach((x) => m.set(x.id, { x: x.x, y: x.y, w: x.w || 320, h: x.h || 180 }))
     cards.forEach((c) => m.set(c.id, { x: c.x, y: c.y, w: c.w || 300, h: c.h || 300 }))
+    charts.forEach((c) => m.set(c.id, { x: c.x, y: c.y, w: c.w || 320, h: c.h || 260 }))
     pins.forEach((p) => m.set(p.id, { x: p.x - 23, y: p.y - 88, w: 46, h: 92 }))
     return m
-  }, [notes, envelopes, clips, music, cards, pins])
+  }, [notes, envelopes, clips, music, cards, charts, pins])
   const collab = useMemo(() => Object.values(cursors || {}), [cursors])
   // Keep collaborator labels a constant on-screen size regardless of zoom.
   const invZoom = 1 / ((getZoom && getZoom()) || 1)
@@ -176,6 +178,7 @@ export default function Board({
       clips.forEach((c) => { if (hit(c.x, c.y, c.w, c.h)) ids.push(c.id) })
       music.forEach((m) => { if (hit(m.x, m.y, m.w, m.h)) ids.push(m.id) })
       cards.forEach((c) => { if (hit(c.x, c.y, c.w, c.h)) ids.push(c.id) })
+      charts.forEach((c) => { if (hit(c.x, c.y, c.w, c.h)) ids.push(c.id) })
       envelopes.forEach((en) => { if (hit(en.x, en.y, en.w, en.h)) ids.push(en.id) })
       onSelectMany(base.length ? [...new Set([...base, ...ids])] : ids)
     }
@@ -212,14 +215,14 @@ export default function Board({
       onPointerMove={onReportCursor ? (e) => { const w = worldAt(e); onReportCursor(w.x, w.y) } : undefined}
       onDoubleClick={(e) => {
         if (readonly) return
-        if (!e.target.closest('.note,.envelope,.pin-item,.music-item')) {
+        if (!e.target.closest('.note,.envelope,.pin-item,.music-item,.card,.chart-card,.link-card')) {
           const w = worldAt(e)
           onAddNote(w.x, w.y)
         }
       }}
       onContextMenu={(e) => {
         if (readonly) return
-        if (e.target.closest('.note,.envelope,.pin-item,.music-item')) return
+        if (e.target.closest('.note,.envelope,.pin-item,.music-item,.card,.chart-card,.link-card')) return
         e.preventDefault()
         const w = worldAt(e)
         onCtxBackground({ x: e.clientX, y: e.clientY, wx: w.x, wy: w.y })
@@ -407,6 +410,21 @@ export default function Board({
             onMoveEnd={onCardMoveEnd}
             onResizeEnd={onCardResizeEnd}
             onOpen={onOpenCard}
+            onContextMenu={onCtxItem}
+          />
+        ))}
+
+        {charts.map((chart) => (
+          <ChartView
+            key={chart.id}
+            item={chart}
+            selected={isSel.has(chart.id)}
+            primary={selected === chart.id}
+            getZoom={getZoom}
+            onPointerSelect={onPointerSelect}
+            onMoveEnd={onChartMoveEnd}
+            onResizeEnd={onChartResizeEnd}
+            onOpen={onOpenChart}
             onContextMenu={onCtxItem}
           />
         ))}

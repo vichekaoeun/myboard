@@ -195,3 +195,13 @@ export function GoogleIcon({ size = 16 }) {
     </svg>
   )
 }
+export function ChartIcon(props) {
+  return (
+    <Svg {...props}>
+      <path d="M4 20V11" />
+      <path d="M10 20V4" />
+      <path d="M16 20v-6" />
+      <path d="M3 20h18" />
+    </Svg>
+  )
+}

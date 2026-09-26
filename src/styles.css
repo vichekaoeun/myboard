@@ -2085,3 +2085,62 @@ button.plan-chip { cursor: pointer; border: 0; }
 .share-error-card h2 { margin: 14px 0 6px; }
 .share-error-card p { color: rgba(255, 235, 205, 0.7); }
 .primary-link { display: inline-block; margin-top: 12px; padding: 9px 16px; border-radius: 9px; background: var(--accent); color: #33230c; font-weight: 700; text-decoration: none; }
+
+/* ---------------- charts ---------------- */
+.chart-card {
+  position: absolute;
+  background: linear-gradient(#fffdf7, #f3ecdc);
+  border: 1px solid rgba(120, 100, 70, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(40, 25, 8, 0.28), 0 1px 3px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.chart-card:active { cursor: grabbing; }
+.chart-card-selected { outline: 2px solid rgba(232, 163, 61, 0.7); outline-offset: 4px; }
+.chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px 5px;
+  border-bottom: 1px solid rgba(120, 100, 70, 0.18);
+}
+.chart-title {
+  font: 700 13px 'Inter', system-ui, sans-serif;
+  color: #4a3d28;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chart-kind {
+  font: 700 9.5px 'Inter', system-ui, sans-serif;
+  letter-spacing: 0.06em;
+  color: #8a795a;
+  background: rgba(120, 100, 70, 0.12);
+  padding: 2px 6px;
+  border-radius: 6px;
+  flex: none;
+}
+.chart-body { flex: 1; min-height: 0; display: grid; place-items: center; padding: 4px 8px 6px; overflow: hidden; }
+.chart-svg { display: block; max-width: 100%; max-height: 100%; }
+.chart-axis { font: 500 8px 'Inter', system-ui, sans-serif; fill: #8a795a; }
+.chart-empty { font: 500 12px 'Inter', system-ui, sans-serif; fill: #a99a7c; }
+
+.chart-editor { width: min(560px, 94vw); }
+.chart-kind-tabs { display: flex; gap: 8px; margin: 6px 0 14px; }
+.chart-kind-tab {
+  flex: 1;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f2e8d9;
+  border-radius: 8px;
+  padding: 8px;
+  font: 700 13px 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+}
+.chart-kind-tab.on { background: var(--accent); color: #33230c; border-color: var(--accent); }
+.chart-data-input { font-family: ui-monospace, 'SF Mono', monospace; resize: vertical; padding: 10px; line-height: 1.5; }

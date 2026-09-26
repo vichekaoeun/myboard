@@ -5,7 +5,7 @@ import { Camera } from './camera.js'
 import { fanPoses } from './Envelope.jsx'
 import { CassetteIcon, PaperClip } from './art.jsx'
 import {
-  EnvelopeIcon, FileIcon, LinkIcon, MoveIcon, NewspaperIcon, NoteIcon,
+  ChartIcon, EnvelopeIcon, FileIcon, LinkIcon, MoveIcon, NewspaperIcon, NoteIcon,
   PinIcon, RedoIcon, SearchIcon, SignOutIcon, UndoIcon, ZoomInIcon, ZoomOutIcon,
 } from './icons.jsx'
 import * as store from './store.js'
@@ -41,6 +41,24 @@ function initials(name) {
   const parts = String(name || '?').trim().split(/\s+/).filter(Boolean).slice(0, 2)
   const s = parts.map((w) => (w[0] || '').toUpperCase()).join('')
   return s || '?'
+}
+
+// Chart data <-> editable text ("Label, 12" per line).
+function dataToText(data) {
+  return (data || []).map((d) => `${d.label}, ${d.value}`).join('\n')
+}
+function parseChartText(text) {
+  return String(text || '')
+    .split(/\r?\n/)
+    .map((line) => {
+      const parts = line.split(/[,\t;]+/).map((s) => s.trim()).filter((s) => s !== '')
+      if (!parts.length) return null
+      const value = Number(parts[parts.length - 1])
+      if (!isFinite(value)) return null
+      const label = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0]
+      return { label: label || '—', value }
+    })
+    .filter(Boolean)
 }
 
 const PAPER_COLORS = [
@@ -80,6 +98,7 @@ export default function App() {
   const [flip, setFlip] = useState(0)
   const [locationEditor, setLocationEditor] = useState(null)
   const [musicEditor, setMusicEditor] = useState(null)
+  const [chartEditor, setChartEditor] = useState(null)
 
   const [session, setSession] = useState(null) // { id, email }
   const [authChecked, setAuthChecked] = useState(false)
@@ -587,6 +606,29 @@ export default function App() {
     store.addCard(Math.round(point.x - 150), Math.round(point.y - 150), preview)
   }, [say])
 
+  const handleChartMoveEnd = useCallback((id, x, y) => store.moveChart(id, x, y), [])
+  const handleChartResizeEnd = useCallback((id, w, h) => store.updateChart(id, { w, h }), [])
+  const openChartEditor = useCallback((chart) => {
+    setChartEditor({ id: chart.id, title: chart.title || 'Chart', kind: chart.kind || 'bar', text: dataToText(chart.data) })
+  }, [])
+  const addChartAt = useCallback((x, y) => {
+    const data = [{ label: 'A', value: 4 }, { label: 'B', value: 7 }, { label: 'C', value: 3 }, { label: 'D', value: 5 }]
+    const c = store.addChart(Math.round(x), Math.round(y), { title: 'Chart', kind: 'bar', data })
+    setChartEditor({ id: c.id, title: c.title, kind: c.kind, text: dataToText(data) })
+  }, [])
+  const handleAddChart = useCallback(() => {
+    const point = cameraRef.current
+      ? cameraRef.current.worldPoint(window.innerWidth / 2, window.innerHeight / 2)
+      : { x: 0, y: 0 }
+    addChartAt(point.x - 160, point.y - 130)
+  }, [addChartAt])
+  const saveChart = useCallback(() => {
+    setChartEditor((cur) => {
+      if (cur) store.updateChart(cur.id, { title: (cur.title || '').trim() || 'Chart', kind: cur.kind, data: parseChartText(cur.text) })
+      return null
+    })
+  }, [])
+
   const refreshCard = useCallback(async (card) => {
     say('Refreshing preview…')
     const res = await apiLinkPreview(card.url)
@@ -774,6 +816,7 @@ export default function App() {
     if (ctx.kind === 'bg') {
       base.push({ label: 'Add note here', icon: '＋', run: () => store.addNote(ctx.wx, ctx.wy) })
       base.push({ label: 'Add location pin here', icon: '⍟', run: () => handleAddPin(ctx.wx, ctx.wy) })
+      base.push({ label: 'Add chart here', icon: '▦', run: () => addChartAt(ctx.wx, ctx.wy) })
       base.push({ label: 'Fit everything in view', icon: '◱', run: fitView })
     } else if (ctx.kind === 'note') {
       const it = ctx.item
@@ -805,6 +848,11 @@ export default function App() {
       base.push({ label: 'Refresh preview', icon: '⟳', run: () => refreshCard(it) })
       base.push({ label: dupLabel, icon: '❐', run: () => batchDuplicate(it.id) })
       base.push({ label: delLabel('Delete card'), icon: '×', run: () => batchDelete(it.id), danger: true })
+    } else if (ctx.kind === 'chart') {
+      const it = ctx.item
+      base.push({ label: 'Edit chart', icon: '▦', run: () => openChartEditor(it) })
+      base.push({ label: dupLabel, icon: '❐', run: () => batchDuplicate(it.id) })
+      base.push({ label: delLabel('Delete chart'), icon: '×', run: () => batchDelete(it.id), danger: true })
     }
     if (ctx.kind !== 'bg' && ctx.kind !== 'link') {
       const it = ctx.item
@@ -934,6 +982,7 @@ export default function App() {
       if (key === 'i') { clipInputRef.current?.click(); return }
       if (key === 'a') { musicInputRef.current?.click(); return }
       if (key === 'c') { handleAddCard(); return }
+      if (key === 'g') { handleAddChart(); return }
       if (key === 'd') { copySelected(); return }
       if (key === 'f') { fitView(); return }
       if (key === ']') { store.bringToFront(); return }
@@ -945,7 +994,7 @@ export default function App() {
     // propagation on keydown) has focus.
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [ctx, linkFrom, moreOpen, boardsOpen, upgradeOpen, shareBoard, handleAddCard, copySelected, fitView, readonly])
+  }, [ctx, linkFrom, moreOpen, boardsOpen, upgradeOpen, shareBoard, handleAddCard, handleAddChart, copySelected, fitView, readonly])
 
   // obey no-emoji-ish default but these are handy: keep simple text icons above
 
@@ -973,6 +1022,7 @@ export default function App() {
         clips={state.clips}
         music={state.music}
         cards={state.cards || []}
+        charts={state.charts || []}
         envelopes={state.envelopes}
         links={state.links || []}
         connections={connections}
@@ -1000,6 +1050,9 @@ export default function App() {
         onCardMoveEnd={handleCardMoveEnd}
         onCardResizeEnd={handleCardResizeEnd}
         onOpenCard={handleOpenCard}
+        onChartMoveEnd={handleChartMoveEnd}
+        onChartResizeEnd={handleChartResizeEnd}
+        onOpenChart={openChartEditor}
         onFanDrop={handleFanDrop}
         onDragMove={handleDragMove}
         onAddNote={handleAddNote}
@@ -1054,6 +1107,9 @@ export default function App() {
           </button>
           <button className="tool-btn" onClick={handleAddCard} title="Save a link card (C)">
             <NewspaperIcon size={16} />
+          </button>
+          <button className="tool-btn" onClick={handleAddChart} title="Add a chart (G)">
+            <ChartIcon size={17} />
           </button>
         </div>
 
@@ -1296,6 +1352,58 @@ export default function App() {
         </div>
       )}
 
+      {chartEditor && (
+        <div className="location-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setChartEditor(null) }}>
+          <div className="location-editor chart-editor">
+            <div className="location-editor-head">
+              <div>
+                <span className="location-kicker">Chart</span>
+                <h2>Edit chart</h2>
+              </div>
+              <button className="icon-btn" onClick={() => setChartEditor(null)} title="Close">×</button>
+            </div>
+
+            <label className="location-label" htmlFor="chart-title">Title</label>
+            <input
+              id="chart-title"
+              className="location-input"
+              autoFocus
+              value={chartEditor.title}
+              onChange={(e) => setChartEditor((c) => ({ ...c, title: e.target.value }))}
+            />
+
+            <label className="location-photo-label">Type</label>
+            <div className="chart-kind-tabs">
+              {['bar', 'line', 'pie'].map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className={`chart-kind-tab ${chartEditor.kind === k ? 'on' : ''}`}
+                  onClick={() => setChartEditor((c) => ({ ...c, kind: k }))}
+                >
+                  {k[0].toUpperCase() + k.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            <label className="location-photo-label" htmlFor="chart-data">Data — one row per line, e.g. <code>Q1, 12</code> (paste CSV/TSV works too)</label>
+            <textarea
+              id="chart-data"
+              className="location-input chart-data-input"
+              rows={6}
+              spellCheck={false}
+              value={chartEditor.text}
+              onChange={(e) => setChartEditor((c) => ({ ...c, text: e.target.value }))}
+            />
+
+            <div className="location-actions">
+              <button className="location-cancel" onClick={() => setChartEditor(null)}>Cancel</button>
+              <button className="location-save" onClick={saveChart}>Save chart</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ---------- context menu ---------- */}
       {ctx && (
         <div className="ctxmenu" style={{ left: ctx.x, top: ctx.y }}>
@@ -1436,6 +1544,7 @@ function HelpDialog({ onClose, onFit, onExport }) {
               <li>Click a link to open it; drop/paste images in</li>
               <li>Use the <b>Link</b> tool → pick a type, click two notes to tie a string</li>
               <li>Save a link as an <b>article card</b> from the toolbar</li>
+              <li>Add a <b>chart</b> (bar / line / pie) — double-click it to edit the data</li>
               <li>Right-click any item for colours &amp; more</li>
             </ul>
           </div>
@@ -1453,7 +1562,7 @@ function HelpDialog({ onClose, onFit, onExport }) {
             <h3>Shortcuts</h3>
             <ul>
               <li><b>1–5</b> (or <b>M N P L</b>) — tools</li>
-              <li><b>I</b> image · <b>A</b> audio · <b>C</b> link card</li>
+              <li><b>I</b> image · <b>A</b> audio · <b>C</b> link card · <b>G</b> chart</li>
               <li><b>D</b> duplicate · <b>F</b> fit · <b>?</b> help</li>
               <li><b>]</b> bring to front · <b>[</b> send to back (add Ctrl/Cmd while typing)</li>
               <li><b>Ctrl/Cmd+Z</b> undo · add <b>Shift</b> to redo</li>

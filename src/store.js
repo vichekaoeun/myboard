@@ -239,6 +239,7 @@ function defaultState() {
     clips: [],
     music: [],
     cards: [],
+    charts: [],
     envelopes: [],
     links: [],
     selected: null,
@@ -297,6 +298,7 @@ function hydrate(saved) {
         clips: saved.clips || [],
         music: saved.music || [],
         cards: Array.isArray(saved.cards) ? saved.cards : [],
+        charts: Array.isArray(saved.charts) ? saved.charts : [],
         envelopes: [],
         links: Array.isArray(saved.links) ? saved.links : [],
         selected: null,
@@ -867,6 +869,35 @@ export function moveCard(id, x, y) {
   })
 }
 
+// A small chart pinned to the board (bar / line / pie).
+export function addChart(x, y, chart = {}) {
+  const c = {
+    id: uid(), x, y, w: 320, h: 260,
+    title: chart.title || 'Chart',
+    kind: chart.kind || 'bar',
+    data: Array.isArray(chart.data) ? chart.data : [],
+    rotation: 0,
+  }
+  const p = clampToCork(c.x, c.y, c.w, c.h)
+  c.x = p.x; c.y = p.y
+  mutate((s) => ({ ...s, charts: [...(s.charts || []), c], selected: c.id, selectedIds: [c.id], mode: 'move' }))
+  return c
+}
+
+export function updateChart(id, patch) {
+  mutate((s) => ({ ...s, charts: (s.charts || []).map((c) => (c.id === id ? { ...c, ...patch } : c)) }))
+}
+
+export function moveChart(id, x, y) {
+  mutate((s) => {
+    const rest = (s.charts || []).filter((c) => c.id !== id)
+    const item = (s.charts || []).find((c) => c.id === id)
+    if (!item) return s
+    const p = clampToCork(x, y, item.w, item.h)
+    return { ...s, charts: [...rest, { ...item, x: p.x, y: p.y }] }
+  })
+}
+
 export function moveMusic(id, x, y) {
   mutate((s) => {
     const rest = s.music.filter((m) => m.id !== id)
@@ -951,6 +982,7 @@ export function deleteItem(id) {
     const clips = s.clips.filter((c) => c.id !== id)
     const music = s.music.filter((m) => m.id !== id)
     const cards = (s.cards || []).filter((c) => c.id !== id)
+    const charts = (s.charts || []).filter((c) => c.id !== id)
     const links = (s.links || []).filter((l) => l.from !== id && l.to !== id)
     const env = s.envelopes.find((e) => e.id === id)
     if (env) {
@@ -963,6 +995,7 @@ export function deleteItem(id) {
         clips,
         music,
         cards,
+        charts,
         links,
         selected: s.selected === id ? null : s.selected,
         selectedIds: (s.selectedIds || []).filter((x) => x !== id),
@@ -977,6 +1010,7 @@ export function deleteItem(id) {
       clips,
       music,
       cards,
+      charts,
       links,
       envelopes: gid
         ? s.envelopes.map((e) =>
@@ -1024,12 +1058,17 @@ export function duplicateItem(id) {
       const copy = { ...card, id: uid(), x: card.x + 26, y: card.y + 26 }
       return { ...s, cards: [...s.cards, copy], selected: copy.id, selectedIds: [copy.id] }
     }
+    const chart = (s.charts || []).find((c) => c.id === id)
+    if (chart) {
+      const copy = { ...chart, id: uid(), x: chart.x + 26, y: chart.y + 26, data: (chart.data || []).map((d) => ({ ...d })) }
+      return { ...s, charts: [...s.charts, copy], selected: copy.id, selectedIds: [copy.id] }
+    }
     return s
   })
 }
 
 export function clearBoard() {
-  mutate((s) => ({ ...s, notes: [], pins: [], clips: [], music: [], cards: [], envelopes: [], links: [], selected: null, selectedIds: [] }))
+  mutate((s) => ({ ...s, notes: [], pins: [], clips: [], music: [], cards: [], charts: [], envelopes: [], links: [], selected: null, selectedIds: [] }))
 }
 
 // ---- multi-select operations -------------------------------------------------
@@ -1073,6 +1112,11 @@ export function moveItems(dx, dy) {
         const p = clampToCork(c.x + dx, c.y + dy, c.w, c.h)
         return { ...c, x: p.x, y: p.y }
       }),
+      charts: (s.charts || []).map((c) => {
+        if (!set.has(c.id)) return c
+        const p = clampToCork(c.x + dx, c.y + dy, c.w, c.h)
+        return { ...c, x: p.x, y: p.y }
+      }),
       envelopes: s.envelopes.map((e) => {
         if (!set.has(e.id)) return e
         const p = clampToCork(e.x + dx, e.y + dy, e.w, e.h)
@@ -1093,6 +1137,7 @@ export function deleteSelection() {
     clips: s.clips.filter((c) => !set.has(c.id)),
     music: s.music.filter((m) => !set.has(m.id)),
     cards: (s.cards || []).filter((c) => !set.has(c.id)),
+    charts: (s.charts || []).filter((c) => !set.has(c.id)),
     links: (s.links || []).filter((l) => !set.has(l.from) && !set.has(l.to)),
     envelopes: s.envelopes
       .filter((e) => !set.has(e.id))
@@ -1124,13 +1169,15 @@ export function duplicateSelection() {
     s.music.filter((x) => set.has(x.id)).forEach((x) => { const c = { ...x, id: uid(), x: x.x + 26, y: x.y + 26 }; music.push(c); newIds.push(c.id) })
     const cards = [...(s.cards || [])]
     ;(s.cards || []).filter((x) => set.has(x.id)).forEach((x) => { const c = { ...x, id: uid(), x: x.x + 26, y: x.y + 26 }; cards.push(c); newIds.push(c.id) })
+    const charts = [...(s.charts || [])]
+    ;(s.charts || []).filter((x) => set.has(x.id)).forEach((x) => { const c = { ...x, id: uid(), x: x.x + 26, y: x.y + 26, data: (x.data || []).map((d) => ({ ...d })) }; charts.push(c); newIds.push(c.id) })
     const envelopes = [...s.envelopes]
     s.envelopes.filter((x) => set.has(x.id)).forEach((x) => {
       const c = { ...x, id: uid(), x: x.x + 26, y: x.y + 26, noteIds: [], expanded: false, title: x.title + ' (copy)' }
       envelopes.push(c); newIds.push(c.id)
     })
     return {
-      ...s, notes, pins, clips, music, cards, envelopes,
+      ...s, notes, pins, clips, music, cards, charts, envelopes,
       selected: newIds.length ? newIds[newIds.length - 1] : null,
       selectedIds: newIds,
     }
@@ -1140,7 +1187,7 @@ export function duplicateSelection() {
 // ---- stacking order ----------------------------------------------------------
 
 // Fallback stacking per item type (used until an item has been re-ordered).
-export const Z_DEFAULT = { note: 10, pin: 8, clip: 12, music: 13, card: 11, envelope: 12 }
+export const Z_DEFAULT = { note: 10, pin: 8, clip: 12, music: 13, card: 11, chart: 11, envelope: 12 }
 
 function effZ(item, kind) {
   return item && item.z != null ? item.z : (Z_DEFAULT[kind] ?? 10)
@@ -1155,7 +1202,7 @@ function zBounds(s) {
     if (z > max) max = z
   })
   scan(s.notes, 'note'); scan(s.pins, 'pin'); scan(s.clips, 'clip')
-  scan(s.music, 'music'); scan(s.cards, 'card'); scan(s.envelopes, 'envelope')
+  scan(s.music, 'music'); scan(s.cards, 'card'); scan(s.charts, 'chart'); scan(s.envelopes, 'envelope')
   return { min, max }
 }
 
@@ -1174,6 +1221,7 @@ function reorderZ(s, list, place) {
     clips: apply(s.clips),
     music: apply(s.music),
     cards: apply(s.cards || []),
+    charts: apply(s.charts || []),
     envelopes: apply(s.envelopes),
   }
 }
@@ -1214,6 +1262,7 @@ export function importState(data) {
     clips: (data.clips || []).map((c) => ({ ...c, w: c.w || 220, h: c.h || 180 })).filter((c) => c.url),
     music: (data.music || []).map((m) => ({ ...m, w: m.w || 320, h: m.h || 180, title: m.title || 'Untitled mixtape' })).filter((m) => m.url),
     cards: (data.cards || []).map((c) => ({ ...c, w: c.w || 300, h: c.h || 300 })).filter((c) => c.url),
+    charts: (data.charts || []).map((c) => ({ ...c, w: c.w || 320, h: c.h || 260, kind: c.kind || 'bar', title: c.title || 'Chart', data: Array.isArray(c.data) ? c.data : [] })),
     envelopes: [],
     links: Array.isArray(data.links) ? data.links : [],
   }
@@ -1328,6 +1377,7 @@ function cloudPayload() {
     clips: state.clips,
     music: state.music,
     cards: state.cards || [],
+    charts: state.charts || [],
     envelopes: [],
     links: state.links || [],
     view: state.view,
@@ -1398,6 +1448,7 @@ function applyRemote(rawPayload) {
     clips: remote.clips || [],
     music: remote.music || [],
     cards: remote.cards || [],
+    charts: remote.charts || [],
     envelopes: [],
     links: remote.links || [],
     view: remote.view,
@@ -1413,6 +1464,7 @@ function applyRemote(rawPayload) {
     clips: remote.clips || [],
     music: remote.music || [],
     cards: remote.cards || [],
+    charts: remote.charts || [],
     envelopes: [],
     links: remote.links || [],
     view: state.view.s === undefined ? remote.view || state.view : state.view,
