@@ -177,7 +177,9 @@ export async function handleBilling(request, env, user, url) {
     const upd = await stripe(env, 'POST', `subscriptions/${sub.id}`, {
       'items[0][id]': item.id,
       'items[0][price]': price,
-      proration_behavior: 'create_prorations',
+      // Settle the proration immediately: charge any amount due now, or issue
+      // a credit for the unused time when moving to a cheaper plan.
+      proration_behavior: 'always_invoice',
       cancel_at_period_end: 'false',
     })
     if (!upd.ok) return json({ error: 'stripe_error', message: errMessage(upd, 'Stripe error') }, 502)
