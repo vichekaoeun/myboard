@@ -2156,3 +2156,7 @@ button.plan-chip { cursor: pointer; border: 0; }
 .chart-auto-error { color: #ffb0a7; }
 .chart-auto-google { display: grid; gap: 8px; }
 @media (max-width: 560px) { .chart-auto-grid, .chart-auto-paths { grid-template-columns: 1fr; } }
+.chart-auto-actions { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+.chart-auto-ok { color: #9fe0a4; font: 600 12.5px 'Inter', system-ui, sans-serif; }
+.chart-kind.auto { background: #d6e7ff; color: #29496b; }
+.chart-kind.err { background: #ffd9d9; color: #8a2b2b; }

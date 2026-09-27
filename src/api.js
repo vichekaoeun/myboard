@@ -115,6 +115,11 @@ export function apiBillingCancel(resume) {
   return req('POST', '/api/billing/cancel', { resume })
 }
 
+// Test/poll a chart data source right now (used by the editor and refresh).
+export function apiAutomationPreview(automation) {
+  return req('POST', '/api/automation/preview', { automation })
+}
+
 // Live updates: the Worker pings "changed" whenever the board is saved, and
 // streams presence/activity. Auto-reconnects while mounted.
 function openSocket(path, onMessage) {

@@ -11,7 +11,7 @@ import {
 import * as store from './store.js'
 import { pointerSelect } from './drag.js'
 import { CONNECTION_ORDER, CONNECTION_TYPES } from './connections.js'
-import { apiBillingCancel, apiBillingPortal, apiBillingRefresh, apiCheckout, apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, apiRevokeShare, apiSetShare } from './api.js'
+import { apiAutomationPreview, apiBillingCancel, apiBillingPortal, apiBillingRefresh, apiCheckout, apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, apiRevokeShare, apiSetShare } from './api.js'
 
 const TOOLS = [
   { id: 'move', label: 'Move', icon: MoveIcon },
@@ -61,6 +61,30 @@ function parseChartText(text) {
     .filter(Boolean)
 }
 
+// Build the stored automation config from the chart editor.
+function buildAutomation(editor, existing) {
+  const url = (editor.sourceUrl || '').trim()
+  if (!(editor.automated && url)) return { ...(existing && existing.automation), enabled: false }
+  const sheets = editor.sourceKind === 'google-sheets'
+  return {
+    ...(existing && existing.automation),
+    enabled: true,
+    kind: editor.sourceKind,
+    url: sheets ? '' : url,
+    format: editor.sourceFormat,
+    spreadsheetUrl: sheets ? url : '',
+    range: (editor.sheetRange || '').trim() || 'Sheet1!A:B',
+    labelColumn: (editor.sheetLabelColumn || '').trim() || 'A',
+    valueColumn: (editor.sheetValueColumn || '').trim() || 'B',
+    rowsPath: (editor.rowsPath || '').trim(),
+    labelPath: (editor.labelPath || '').trim() || 'label',
+    valuePath: (editor.valuePath || '').trim() || 'value',
+    intervalMs: Number(editor.intervalMs) || 300000,
+    nextRunAt: 0,
+    lastError: '',
+  }
+}
+
 const PAPER_COLORS = [
   { id: 'white', label: 'Cream', swatch: '#fdfaf1' },
   { id: 'yellow', label: 'Canary', swatch: '#fff8c4' },
@@ -99,6 +123,7 @@ export default function App() {
   const [locationEditor, setLocationEditor] = useState(null)
   const [musicEditor, setMusicEditor] = useState(null)
   const [chartEditor, setChartEditor] = useState(null)
+  const [chartFetching, setChartFetching] = useState(false)
 
   const [session, setSession] = useState(null) // { id, email }
   const [authChecked, setAuthChecked] = useState(false)
@@ -615,7 +640,7 @@ export default function App() {
       automated: !!a.enabled, sourceKind: a.kind || 'rest', sourceUrl: a.url || '', sourceFormat: a.format || 'json',
       rowsPath: a.rowsPath || '', labelPath: a.labelPath || 'label', valuePath: a.valuePath || 'value',
       sheetRange: a.range || 'Sheet1!A:B', sheetLabelColumn: a.labelColumn || 'A', sheetValueColumn: a.valueColumn || 'B',
-      intervalMs: String(a.intervalMs || 300000), lastError: a.lastError || '',
+      intervalMs: String(a.intervalMs || 300000), lastError: a.lastError || '', fetchInfo: '',
     })
   }, [])
   const addChartAt = useCallback((x, y) => {
@@ -632,31 +657,48 @@ export default function App() {
   const saveChart = useCallback((editor = chartEditor) => {
     if (!editor) return
     const existing = store.getState().charts.find((chart) => chart.id === editor.id)
-    const hasSource = editor.sourceUrl.trim()
-    const automation = editor.automated && hasSource
-      ? {
-          ...(existing && existing.automation), enabled: true, kind: editor.sourceKind,
-          url: editor.sourceKind === 'rest' ? editor.sourceUrl.trim() : '', format: editor.sourceFormat,
-          spreadsheetUrl: editor.sourceKind === 'google-sheets' ? editor.sourceUrl.trim() : '',
-          range: editor.sheetRange.trim() || 'Sheet1!A:B', labelColumn: editor.sheetLabelColumn.trim() || 'A', valueColumn: editor.sheetValueColumn.trim() || 'B',
-          rowsPath: editor.rowsPath.trim(), labelPath: editor.labelPath.trim() || 'label', valuePath: editor.valuePath.trim() || 'value',
-          intervalMs: Number(editor.intervalMs) || 300000, nextRunAt: 0, lastError: '',
-        }
-      : { ...(existing && existing.automation), enabled: false }
     store.updateChart(editor.id, {
       title: (editor.title || '').trim() || 'Chart', kind: editor.kind,
       data: editor.automated ? (existing ? existing.data : parseChartText(editor.text)) : parseChartText(editor.text),
-      automation,
+      automation: buildAutomation(editor, existing),
     })
     setChartEditor(null)
   }, [chartEditor])
 
-  const connectGoogleSheets = useCallback(async () => {
-    saveChart()
-    store.saveNow()
-    await store.pushNow()
-    apiLoginWithGoogle()
-  }, [saveChart])
+  // Pull the source once, right now, so people can verify the mapping.
+  const fetchChartNow = useCallback(async () => {
+    const editor = chartEditor
+    if (!editor) return
+    const existing = store.getState().charts.find((chart) => chart.id === editor.id)
+    const automation = buildAutomation(editor, existing)
+    if (!automation.enabled) {
+      setChartEditor((c) => ({ ...c, lastError: 'Add a source URL and turn on automation first', fetchInfo: '' }))
+      return
+    }
+    setChartFetching(true)
+    const res = await apiAutomationPreview(automation)
+    setChartFetching(false)
+    if (res && res.error) {
+      setChartEditor((c) => ({ ...c, lastError: res.error.message || 'Fetch failed', fetchInfo: '' }))
+      return
+    }
+    const rows = (res && res.data) || []
+    store.updateChart(editor.id, { data: rows, automation: { ...automation, lastError: '', lastRunAt: Date.now(), nextRunAt: 0 } })
+    setChartEditor((c) => ({ ...c, lastError: '', fetchInfo: `Fetched ${rows.length} row${rows.length === 1 ? '' : 's'}`, text: dataToText(rows) }))
+  }, [chartEditor])
+
+  const refreshChartData = useCallback(async (chart) => {
+    if (!chart || !chart.automation || !chart.automation.enabled) { say('This chart has no automation'); return }
+    say('Refreshing chart…')
+    const res = await apiAutomationPreview(chart.automation)
+    if (res && res.error) {
+      store.updateChart(chart.id, { automation: { ...chart.automation, lastError: res.error.message || 'Refresh failed' } })
+      say(res.error.message || 'Refresh failed')
+      return
+    }
+    store.updateChart(chart.id, { data: (res && res.data) || [], automation: { ...chart.automation, lastError: '', lastRunAt: Date.now(), nextRunAt: 0 } })
+    say('Chart updated')
+  }, [say])
 
   const refreshCard = useCallback(async (card) => {
     say('Refreshing preview…')
@@ -880,6 +922,7 @@ export default function App() {
     } else if (ctx.kind === 'chart') {
       const it = ctx.item
       base.push({ label: 'Edit chart', icon: '▦', run: () => openChartEditor(it) })
+      if (it.automation && it.automation.enabled) base.push({ label: 'Refresh data now', icon: '⟳', run: () => refreshChartData(it) })
       base.push({ label: dupLabel, icon: '❐', run: () => batchDuplicate(it.id) })
       base.push({ label: delLabel('Delete chart'), icon: '×', run: () => batchDelete(it.id), danger: true })
     }
@@ -1479,11 +1522,16 @@ export default function App() {
                   </div>
                 )}
                 {chartEditor.sourceKind === 'google-sheets' ? (
-                  <div className="chart-auto-google">
-                    <p className="chart-auto-note">Reconnect your Google account to approve Sheets access, then choose a range with a label and value column.</p>
-                    <button type="button" className="location-cancel" onClick={connectGoogleSheets}>Connect Google Sheets</button>
-                  </div>
-                ) : <p className="chart-auto-note">Public sources only. JSON rows must contain label and value fields, or use the mappings above.</p>}
+                  <p className="chart-auto-note">Share the sheet as <b>“Anyone with the link: Viewer”</b>, then set the range and the label/value columns. No Google connection needed.</p>
+                ) : (
+                  <p className="chart-auto-note">Public CSV or JSON only. JSON rows should have label/value fields, or use the mappings above.</p>
+                )}
+                <div className="chart-auto-actions">
+                  <button type="button" className="location-cancel" disabled={chartFetching} onClick={fetchChartNow}>
+                    {chartFetching ? 'Fetching…' : 'Fetch now'}
+                  </button>
+                  {chartEditor.fetchInfo && <span className="chart-auto-ok">{chartEditor.fetchInfo}</span>}
+                </div>
                 {chartEditor.lastError && <p className="chart-auto-error">Last refresh failed: {chartEditor.lastError}</p>}
               </div>
             )}

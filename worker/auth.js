@@ -139,10 +139,10 @@ export function googleStart(request, env) {
     client_id: env.GOOGLE_CLIENT_ID || '',
     redirect_uri: redirectUri,
     response_type: 'code',
-     scope: 'openid email profile https://www.googleapis.com/auth/spreadsheets.readonly',
+     scope: 'openid email profile',
     state,
-     access_type: 'offline',
-     prompt: 'consent select_account',
+    access_type: 'online',
+    prompt: 'select_account',
   })
   return new Response(null, {
     status: 302,

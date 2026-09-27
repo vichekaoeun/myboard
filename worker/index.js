@@ -8,7 +8,7 @@ import { handleBoard, boardSocket, accountSocket } from './board.js'
 import { handleShare, shareSocket } from './share.js'
 import { handleBilling, handleBillingWebhook, billingConfigured } from './billing.js'
 import { handleLinkPreview } from './preview.js'
-import { runAutomations } from './automation.js'
+import { runAutomations, previewAutomation } from './automation.js'
 
 export { Room } from './room.js'
 
@@ -106,6 +106,18 @@ async function route(request, env, url, ctx) {
   }
   if (path === '/api/link-preview' && method === 'GET') return handleLinkPreview(request, env, ctx)
   if (path.startsWith('/api/billing/') && method === 'POST') return handleBilling(request, env, user, url)
+
+  // Test a chart data source immediately (used by the editor's "Fetch now").
+  if (path === '/api/automation/preview' && method === 'POST') {
+    let body = {}
+    try { body = await request.json() } catch (e) {}
+    try {
+      const data = await previewAutomation(env, user.id, body.automation || {})
+      return json({ data })
+    } catch (err) {
+      return json({ error: String((err && err.message) || 'Fetch failed').slice(0, 300) }, 400)
+    }
+  }
   if (path === '/api/ws' && method === 'GET') return accountSocket(request, env, user)
 
   return json({ error: 'Not found' }, 404)
