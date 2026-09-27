@@ -46,3 +46,14 @@ CREATE TABLE IF NOT EXISTS boards (
 CREATE INDEX IF NOT EXISTS idx_boards_user ON boards (user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_boards_share ON boards (share_token) WHERE share_token IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_boards_slug ON boards (slug) WHERE slug IS NOT NULL;
+
+-- Inbound webhook tokens that let external systems PUSH data to a chart.
+CREATE TABLE IF NOT EXISTS chart_hooks (
+  token      TEXT PRIMARY KEY,
+  board_id   TEXT NOT NULL,
+  chart_id   TEXT NOT NULL,
+  user_id    TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_chart_hooks_chart ON chart_hooks (chart_id);

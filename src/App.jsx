@@ -11,7 +11,7 @@ import {
 import * as store from './store.js'
 import { pointerSelect } from './drag.js'
 import { CONNECTION_ORDER, CONNECTION_TYPES } from './connections.js'
-import { apiAutomationPreview, apiBillingCancel, apiBillingPortal, apiBillingRefresh, apiCheckout, apiConfig, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, apiRevokeShare, apiSetShare } from './api.js'
+import { apiAutomationPreview, apiBillingCancel, apiBillingPortal, apiBillingRefresh, apiCheckout, apiConfig, apiCreateHook, apiDeleteHook, apiLinkPreview, apiLoginWithGoogle, apiLogout, apiMe, apiRequestMagicLink, apiRevokeShare, apiSetShare } from './api.js'
 
 const TOOLS = [
   { id: 'move', label: 'Move', icon: MoveIcon },
@@ -62,17 +62,25 @@ function parseChartText(text) {
 }
 
 // Build the stored automation config from the chart editor.
+function hookUrl(token) {
+  return token ? `${window.location.origin}/api/hooks/${token}` : ''
+}
+
 function buildAutomation(editor, existing) {
   const url = (editor.sourceUrl || '').trim()
-  if (!(editor.automated && url)) return { ...(existing && existing.automation), enabled: false }
+  const push = editor.sourceKind === 'push'
+  const hookToken = editor.hookToken || (existing && existing.automation && existing.automation.hookToken) || ''
+  const hasSource = push ? !!hookToken : !!url
+  if (!(editor.automated && hasSource)) return { ...(existing && existing.automation), enabled: false }
   const sheets = editor.sourceKind === 'google-sheets'
   return {
     ...(existing && existing.automation),
     enabled: true,
     kind: editor.sourceKind,
-    url: sheets ? '' : url,
+    url: editor.sourceKind === 'rest' ? url : '',
     format: editor.sourceFormat,
     spreadsheetUrl: sheets ? url : '',
+    hookToken: push ? hookToken : '',
     range: (editor.sheetRange || '').trim() || 'Sheet1!A:B',
     labelColumn: (editor.sheetLabelColumn || '').trim() || 'A',
     valueColumn: (editor.sheetValueColumn || '').trim() || 'B',
@@ -640,7 +648,7 @@ export default function App() {
       automated: !!a.enabled, sourceKind: a.kind || 'rest', sourceUrl: a.url || '', sourceFormat: a.format || 'json',
       rowsPath: a.rowsPath || '', labelPath: a.labelPath || 'label', valuePath: a.valuePath || 'value',
       sheetRange: a.range || 'Sheet1!A:B', sheetLabelColumn: a.labelColumn || 'A', sheetValueColumn: a.valueColumn || 'B',
-      intervalMs: String(a.intervalMs || 300000), lastError: a.lastError || '', fetchInfo: '',
+      intervalMs: String(a.intervalMs || 300000), lastError: a.lastError || '', fetchInfo: '', hookToken: a.hookToken || '',
     })
   }, [])
   const addChartAt = useCallback((x, y) => {
@@ -657,13 +665,18 @@ export default function App() {
   const saveChart = useCallback((editor = chartEditor) => {
     if (!editor) return
     const existing = store.getState().charts.find((chart) => chart.id === editor.id)
+    const automation = buildAutomation(editor, existing)
+    // Revoke the webhook if we're switching away from a push source.
+    if (existing && existing.automation && existing.automation.hookToken && automation.kind !== 'push') {
+      apiDeleteHook(state.boardId, editor.id).catch(() => {})
+    }
     store.updateChart(editor.id, {
       title: (editor.title || '').trim() || 'Chart', kind: editor.kind,
       data: editor.automated ? (existing ? existing.data : parseChartText(editor.text)) : parseChartText(editor.text),
-      automation: buildAutomation(editor, existing),
+      automation,
     })
     setChartEditor(null)
-  }, [chartEditor])
+  }, [chartEditor, state.boardId])
 
   // Pull the source once, right now, so people can verify the mapping.
   const fetchChartNow = useCallback(async () => {
@@ -685,6 +698,24 @@ export default function App() {
     const rows = (res && res.data) || []
     store.updateChart(editor.id, { data: rows, automation: { ...automation, lastError: '', lastRunAt: Date.now(), nextRunAt: 0 } })
     setChartEditor((c) => ({ ...c, lastError: '', fetchInfo: `Fetched ${rows.length} row${rows.length === 1 ? '' : 's'}`, text: dataToText(rows) }))
+  }, [chartEditor])
+
+  // Create (or return) this chart's push webhook.
+  const ensureHook = useCallback(async () => {
+    const editor = chartEditor
+    if (!editor || !state.boardId) return
+    setChartFetching(true)
+    const res = await apiCreateHook(state.boardId, editor.id)
+    setChartFetching(false)
+    if (res && res.token) setChartEditor((c) => ({ ...c, hookToken: res.token, fetchInfo: 'Webhook ready' }))
+    else say((res && res.error && res.error.message) || 'Could not create webhook')
+  }, [chartEditor, state.boardId, say])
+
+  const copyHook = useCallback(() => {
+    const url = hookUrl(chartEditor && chartEditor.hookToken)
+    if (!url) return
+    try { navigator.clipboard.writeText(url) } catch (e) {}
+    setChartEditor((c) => ({ ...c, fetchInfo: 'Webhook link copied' }))
   }, [chartEditor])
 
   const refreshChartData = useCallback(async (chart) => {
@@ -1483,15 +1514,18 @@ export default function App() {
             {chartEditor.automated && (
               <div className="chart-automation">
                 <div className="chart-auto-tabs">
-                  <button type="button" className={`chart-kind-tab ${chartEditor.sourceKind === 'rest' ? 'on' : ''}`} onClick={() => setChartEditor((c) => ({ ...c, sourceKind: 'rest' }))}>REST / CSV</button>
-                  <button type="button" className={`chart-kind-tab ${chartEditor.sourceKind === 'google-sheets' ? 'on' : ''}`} onClick={() => setChartEditor((c) => ({ ...c, sourceKind: 'google-sheets' }))}>Google Sheets</button>
+                  {[['rest', 'REST / CSV'], ['google-sheets', 'Google Sheets'], ['push', 'Push / webhook']].map(([k, label]) => (
+                    <button key={k} type="button" className={`chart-kind-tab ${chartEditor.sourceKind === k ? 'on' : ''}`} onClick={() => setChartEditor((c) => ({ ...c, sourceKind: k }))}>{label}</button>
+                  ))}
                 </div>
-                <input
-                  className="location-input"
-                  placeholder={chartEditor.sourceKind === 'google-sheets' ? 'Google Sheets URL' : 'Public JSON or CSV URL'}
-                  value={chartEditor.sourceUrl}
-                  onChange={(e) => setChartEditor((c) => ({ ...c, sourceUrl: e.target.value }))}
-                />
+                {chartEditor.sourceKind !== 'push' && (
+                  <input
+                    className="location-input"
+                    placeholder={chartEditor.sourceKind === 'google-sheets' ? 'Google Sheets URL' : 'Public JSON or CSV URL'}
+                    value={chartEditor.sourceUrl}
+                    onChange={(e) => setChartEditor((c) => ({ ...c, sourceUrl: e.target.value }))}
+                  />
+                )}
                 <div className="chart-auto-grid">
                   {chartEditor.sourceKind === 'rest' && <label className="location-photo-label">Format
                     <select className="location-input" value={chartEditor.sourceFormat} onChange={(e) => setChartEditor((c) => ({ ...c, sourceFormat: e.target.value }))}>
@@ -1499,39 +1533,66 @@ export default function App() {
                       <option value="csv">CSV</option>
                     </select>
                   </label>}
-                  <label className="location-photo-label">Refresh
+                  {chartEditor.sourceKind !== 'push' && <label className="location-photo-label">Refresh
                     <select className="location-input" value={chartEditor.intervalMs} onChange={(e) => setChartEditor((c) => ({ ...c, intervalMs: e.target.value }))}>
                       <option value="300000">Every 5 minutes</option>
                       <option value="900000">Every 15 minutes</option>
                       <option value="3600000">Every hour</option>
                       <option value="86400000">Daily</option>
                     </select>
-                  </label>
+                  </label>}
                 </div>
-                {chartEditor.sourceKind === 'google-sheets' ? (
-                  <div className="chart-auto-grid chart-auto-paths">
-                    <input className="location-input" placeholder="Range, e.g. Sheet1!A:B" value={chartEditor.sheetRange} onChange={(e) => setChartEditor((c) => ({ ...c, sheetRange: e.target.value }))} />
-                    <input className="location-input" placeholder="Label column" value={chartEditor.sheetLabelColumn} onChange={(e) => setChartEditor((c) => ({ ...c, sheetLabelColumn: e.target.value }))} />
-                    <input className="location-input" placeholder="Value column" value={chartEditor.sheetValueColumn} onChange={(e) => setChartEditor((c) => ({ ...c, sheetValueColumn: e.target.value }))} />
-                  </div>
-                ) : chartEditor.sourceFormat === 'json' && (
-                  <div className="chart-auto-grid chart-auto-paths">
-                    <input className="location-input" placeholder="Rows path, e.g. data.items" value={chartEditor.rowsPath} onChange={(e) => setChartEditor((c) => ({ ...c, rowsPath: e.target.value }))} />
-                    <input className="location-input" placeholder="Label field" value={chartEditor.labelPath} onChange={(e) => setChartEditor((c) => ({ ...c, labelPath: e.target.value }))} />
-                    <input className="location-input" placeholder="Value field" value={chartEditor.valuePath} onChange={(e) => setChartEditor((c) => ({ ...c, valuePath: e.target.value }))} />
+                {chartEditor.sourceKind === 'google-sheets' && (
+                  <>
+                    <div className="chart-auto-grid chart-auto-paths">
+                      <input className="location-input" placeholder="Range, e.g. Sheet1!A:B" value={chartEditor.sheetRange} onChange={(e) => setChartEditor((c) => ({ ...c, sheetRange: e.target.value }))} />
+                      <input className="location-input" placeholder="Label column" value={chartEditor.sheetLabelColumn} onChange={(e) => setChartEditor((c) => ({ ...c, sheetLabelColumn: e.target.value }))} />
+                      <input className="location-input" placeholder="Value column" value={chartEditor.sheetValueColumn} onChange={(e) => setChartEditor((c) => ({ ...c, sheetValueColumn: e.target.value }))} />
+                    </div>
+                    <p className="chart-auto-note">Share the sheet as <b>“Anyone with the link: Viewer”</b>, then set the range and the label/value columns. No Google connection needed.</p>
+                  </>
+                )}
+                {chartEditor.sourceKind === 'rest' && (
+                  <>
+                    {chartEditor.sourceFormat === 'json' && (
+                      <div className="chart-auto-grid chart-auto-paths">
+                        <input className="location-input" placeholder="Rows path, e.g. data.items" value={chartEditor.rowsPath} onChange={(e) => setChartEditor((c) => ({ ...c, rowsPath: e.target.value }))} />
+                        <input className="location-input" placeholder="Label field" value={chartEditor.labelPath} onChange={(e) => setChartEditor((c) => ({ ...c, labelPath: e.target.value }))} />
+                        <input className="location-input" placeholder="Value field" value={chartEditor.valuePath} onChange={(e) => setChartEditor((c) => ({ ...c, valuePath: e.target.value }))} />
+                      </div>
+                    )}
+                    <p className="chart-auto-note">Public CSV or JSON only. JSON rows should have label/value fields, or use the mappings above.</p>
+                  </>
+                )}
+                {chartEditor.sourceKind === 'push' && (
+                  <div className="chart-auto-push">
+                    {chartEditor.hookToken ? (
+                      <>
+                        <input className="location-input" readOnly value={hookUrl(chartEditor.hookToken)} onFocus={(e) => e.target.select()} />
+                        <div className="chart-auto-actions">
+                          <button type="button" className="location-cancel" onClick={copyHook}>Copy link</button>
+                          {chartEditor.fetchInfo && <span className="chart-auto-ok">{chartEditor.fetchInfo}</span>}
+                        </div>
+                        <p className="chart-auto-note">POST data to this URL — a JSON array like <code>[{'{'}&quot;label&quot;:&quot;A&quot;,&quot;value&quot;:4{'}'}]</code>, an object map <code>{'{'}&quot;A&quot;:4{'}'}</code>, or CSV. The chart updates live.</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="chart-auto-note">Get a secret URL your scripts can POST data to. No polling, no credentials.</p>
+                        <div className="chart-auto-actions">
+                          <button type="button" className="location-cancel" disabled={chartFetching} onClick={ensureHook}>{chartFetching ? 'Creating…' : 'Create webhook link'}</button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
-                {chartEditor.sourceKind === 'google-sheets' ? (
-                  <p className="chart-auto-note">Share the sheet as <b>“Anyone with the link: Viewer”</b>, then set the range and the label/value columns. No Google connection needed.</p>
-                ) : (
-                  <p className="chart-auto-note">Public CSV or JSON only. JSON rows should have label/value fields, or use the mappings above.</p>
+                {chartEditor.sourceKind !== 'push' && (
+                  <div className="chart-auto-actions">
+                    <button type="button" className="location-cancel" disabled={chartFetching} onClick={fetchChartNow}>
+                      {chartFetching ? 'Fetching…' : 'Fetch now'}
+                    </button>
+                    {chartEditor.fetchInfo && <span className="chart-auto-ok">{chartEditor.fetchInfo}</span>}
+                  </div>
                 )}
-                <div className="chart-auto-actions">
-                  <button type="button" className="location-cancel" disabled={chartFetching} onClick={fetchChartNow}>
-                    {chartFetching ? 'Fetching…' : 'Fetch now'}
-                  </button>
-                  {chartEditor.fetchInfo && <span className="chart-auto-ok">{chartEditor.fetchInfo}</span>}
-                </div>
                 {chartEditor.lastError && <p className="chart-auto-error">Last refresh failed: {chartEditor.lastError}</p>}
               </div>
             )}

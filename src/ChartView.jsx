@@ -212,7 +212,7 @@ export default memo(function ChartView({
       <div className="chart-head">
         <span className="chart-title">{item.title || 'Chart'}</span>
         <span className={`chart-kind ${item.automation?.enabled ? 'auto' : ''} ${item.automation?.lastError ? 'err' : ''}`} title={item.automation?.lastError || (item.automation?.enabled ? 'Scheduled refresh enabled' : '')}>
-          {item.automation?.enabled ? (item.automation.lastError ? 'AUTO ⚠' : 'AUTO') : (item.kind || 'bar').toUpperCase()}
+          {item.automation?.enabled ? (item.automation.kind === 'push' ? 'PUSH' : (item.automation.lastError ? 'AUTO ⚠' : 'AUTO')) : (item.kind || 'bar').toUpperCase()}
         </span>
       </div>
       <div className="chart-body">

@@ -8,7 +8,7 @@ import { handleBoard, boardSocket, accountSocket } from './board.js'
 import { handleShare, shareSocket } from './share.js'
 import { handleBilling, handleBillingWebhook, billingConfigured } from './billing.js'
 import { handleLinkPreview } from './preview.js'
-import { runAutomations, previewAutomation } from './automation.js'
+import { runAutomations, previewAutomation, handleHook, createChartHook, revokeChartHook } from './automation.js'
 
 export { Room } from './room.js'
 
@@ -67,6 +67,9 @@ async function route(request, env, url, ctx) {
   // Stripe webhook (public — verified by signature, not session).
   if (path === '/api/billing/webhook' && method === 'POST') return handleBillingWebhook(request, env)
 
+  // Public webhook that receives chart data pushes (token-authenticated).
+  if (path.startsWith('/api/hooks/')) return handleHook(request, env, url)
+
   // Public shared-board endpoints — no account required, token only.
   if (path.startsWith('/api/share/')) {
     const seg = path.split('/').filter(Boolean) // ['api','share', token, ...]
@@ -118,6 +121,10 @@ async function route(request, env, url, ctx) {
       return json({ error: String((err && err.message) || 'Fetch failed').slice(0, 300) }, 400)
     }
   }
+
+  // Create / revoke the push webhook for a chart.
+  if (path === '/api/automation/hook' && method === 'POST') return createChartHook(env, user, request)
+  if (path === '/api/automation/hook' && method === 'DELETE') return revokeChartHook(env, user, request)
   if (path === '/api/ws' && method === 'GET') return accountSocket(request, env, user)
 
   return json({ error: 'Not found' }, 404)

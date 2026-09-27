@@ -120,6 +120,15 @@ export function apiAutomationPreview(automation) {
   return req('POST', '/api/automation/preview', { automation })
 }
 
+// Push (webhook) source for a chart.
+export function apiCreateHook(boardId, chartId) {
+  return req('POST', '/api/automation/hook', { boardId, chartId })
+}
+
+export function apiDeleteHook(boardId, chartId) {
+  return req('DELETE', '/api/automation/hook', { boardId, chartId })
+}
+
 // Live updates: the Worker pings "changed" whenever the board is saved, and
 // streams presence/activity. Auto-reconnects while mounted.
 function openSocket(path, onMessage) {

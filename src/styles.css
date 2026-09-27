@@ -2160,3 +2160,4 @@ button.plan-chip { cursor: pointer; border: 0; }
 .chart-auto-ok { color: #9fe0a4; font: 600 12.5px 'Inter', system-ui, sans-serif; }
 .chart-kind.auto { background: #d6e7ff; color: #29496b; }
 .chart-kind.err { background: #ffd9d9; color: #8a2b2b; }
+.chart-auto-push { display: grid; gap: 8px; margin-top: 6px; }
